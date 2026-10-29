@@ -13,13 +13,13 @@ function safeSet(key, value) {
 function safeDel(key) { try { localStorage.removeItem(NS + key); } catch (e) {} }
 
 export const Settings = {
-  data: Object.assign({ theme: null, timeMode: 'day', reduced: null, quality: 'auto', introSeen: false, follow: true }, safeGet('settings', {})),
+  data: Object.assign({ theme: null, timeMode: 'scene', reduced: null, quality: 'auto', introSeen: false, follow: true }, safeGet('settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; safeSet('settings', this.data); }
 };
 
 function emptySave(name, style) {
-  return { v: 1, name, style: style || 0, visited: [], correct: {}, best: {}, stamps: [], at: 'center', traded: [], finalPassed: false, finalBest: 0 };
+  return { v: 2, name, style: style || 0, visited: [], correct: {}, best: {}, stamps: [], at: 'center', traded: [], found: [], finalPassed: false, finalBest: 0 };
 }
 
 export class GameState {
@@ -65,6 +65,7 @@ export class GameState {
     for (const n of Object.values(save.correct)) e += r.firstCorrect + Math.max(0, n - 1) * r.repeatCorrect;
     e += save.stamps.length * r.firstClear;
     e += (save.traded || []).length * (r.firstTrade || 0);
+    e += (save.found || []).length * (r.discoveryExp || 0);
     return e;
   }
   levelOf(exp) {
@@ -130,6 +131,29 @@ export class GameState {
   recordTrade(residentId) {
     if (!this.save) return;
     this.mutate(s => { s.traded = s.traded || []; if (!s.traded.includes(residentId)) s.traded.push(residentId); });
+  }
+  // 探索點（場景裡的關卡）
+  foundList() { return this.save ? (this.save.found || []) : (this.course().found || []); }
+  isFound(id) { return this.foundList().includes(id); }
+  recordDiscovery(id) {
+    if (this.isFound(id)) return false;
+    if (this.save) { this.mutate(s => { (s.found ||= []).push(id); }); }
+    else this.updateCourse(c => { (c.found ||= []).push(id); });
+    this.emit('change');
+    return true;
+  }
+  foundOn(islandId) {
+    const isl = islandId === 'center' ? this.content.center : this.content.islands.find(i => i.id === islandId);
+    const ids = (isl && isl.discoveries || []).map(d => d.id);
+    return { done: ids.filter(id => this.isFound(id)).length, total: ids.length };
+  }
+  challengeOpen(islandId) { return this.foundOn(islandId).done >= Math.min(this.rules.challengeNeed || 0, this.foundOn(islandId).total); }
+  resetCurrent() {
+    const s = this.save; if (!s) return;
+    this.profiles.saves[s.name] = emptySave(s.name, s.style);
+    this.persist();
+    safeDel('course.' + s.name); safeDel('bag.' + s.name);
+    this.emit('profile'); this.emit('change'); this.emit('bag');
   }
   centerUnlocked() { return !!this.save && this.save.stamps.length >= this.rules.centerUnlockStamps; }
 
@@ -203,6 +227,8 @@ export class GameState {
     clean.at = valid.has(data.at) ? data.at : 'center';
     const resIds = new Set(this.allResidentIds());
     clean.traded = (data.traded || []).filter(id => resIds.has(id));
+    const dIds = new Set([...(this.content.center.discoveries || []), ...this.content.islands.flatMap(i => i.discoveries || [])].map(d => d.id));
+    clean.found = (data.found || []).filter(id => dIds.has(id));
     clean.finalPassed = !!data.finalPassed;
     clean.finalBest = Number.isFinite(data.finalBest) ? Math.max(0, Math.min(5, data.finalBest)) : 0;
     return clean;

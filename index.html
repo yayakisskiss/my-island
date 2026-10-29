@@ -68,15 +68,21 @@
       <button class="tool hide-sm" id="btn-follow" type="button" aria-label="鏡頭跟隨冒險者" aria-pressed="true"><span aria-hidden="true">🎥</span><b>跟隨</b></button>
       <button class="tool" id="btn-passport" type="button" aria-label="護照與進度"><span aria-hidden="true">📖</span><b>護照</b></button>
       <button class="tool" id="btn-settings" type="button" aria-label="設定"><span aria-hidden="true">⚙️</span><b>設定</b></button>
+      <button class="tool" id="btn-sound" type="button" aria-label="音樂與音效：開" aria-pressed="true"><span aria-hidden="true">🔊</span><b>聲音</b></button>
+      <button class="tool" id="btn-restart" type="button" aria-label="重新玩"><span aria-hidden="true">🔄</span><b>重新玩</b></button>
       <button class="tool" id="btn-help" type="button" aria-label="說明"><span aria-hidden="true">❓</span><b>說明</b></button>
     </nav>
   </header>
 
   <section id="hud" class="hud" aria-label="冒險者狀態"></section>
+  <div id="banner" class="banner" hidden></div>
+  <button id="near" class="near" type="button" hidden></button>
+  <section id="card" class="card" role="dialog" aria-labelledby="card-title" hidden></section>
 
   <div class="bottom-left">
     <button id="clock" class="chip clock" type="button" aria-label="切換時段"></button>
     <div class="timebar" role="group" aria-label="晝夜切換">
+      <button type="button" data-time="scene" aria-label="跟著課文情境">🎭</button>
       <button type="button" data-time="day" aria-label="白天">☀️</button>
       <button type="button" data-time="dusk" aria-label="黃昏">🌇</button>
       <button type="button" data-time="night" aria-label="夜晚">🌙</button>
@@ -127,6 +133,7 @@
     <p>馨馨正在把小島搬出來……</p>
   </div>
 
+  <div id="confirm" class="modal confirm" hidden><div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div class="modal-body" id="confirm-body"></div></div></div>
   <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
   <div id="levelup" class="levelup" aria-live="assertive" hidden></div>
 </div>

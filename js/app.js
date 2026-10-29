@@ -1,8 +1,11 @@
 import { GameState, Settings, shuffle } from './state.js';
+import { Sound } from './audio.js';
 import { $, $$, esc, h, toast, download, copyText, sampleBadge, today, avatarSvg, STYLE_NAMES, STYLE_ICONS } from './ui.js';
 
 const PHASE = { day: ['☀️', '白天'], dusk: ['🌇', '黃昏'], night: ['🌙', '夜晚'] };
-const MODE_NAME = { day: '白天', dusk: '黃昏', night: '夜晚', auto: '自動流動', realtime: '同步現在時間' };
+const MODE_NAME = { scene: '跟著課文情境', day: '白天', dusk: '黃昏', night: '夜晚', auto: '自動流動', realtime: '同步現在時間' };
+const AMBIENCE = { center: 'plaza', 'island-01': 'forest', 'island-02': 'stream', 'island-03': 'garden', 'island-04': 'forest' };
+const FX_SOUND = { murmur: 'murmur', beam: 'moon', deer: 'hop', tablet: 'page', stele: 'page', petals: 'petals', stream: 'water', moon: 'moon', spring: 'petals', blocks: 'hop', windmill: 'whoosh', door: 'door', flowers: 'petals', painting: 'moon', scroll: 'page', bamboo: 'wind', home: 'door' };
 const NPC_FACE = ['🧑‍🌾', '🏮', '🤓', '🧓'];
 const ANIMAL_NAME = { duck: '鴨子', butterfly: '蝴蝶', penguin: '企鵝', turtle: '海龜', dolphin: '海豚', cat: '貓咪', dog: '小狗', rabbit: '兔子' };
 const ANIMAL_ICON = { duck: '🦆', butterfly: '🦋', penguin: '🐧', turtle: '🐢', dolphin: '🐬', cat: '🐱', dog: '🐶', rabbit: '🐰' };
@@ -29,6 +32,9 @@ async function boot() {
   app.state = new GameState(content);
   app.islandList = [{ ...content.center, id: 'center', order: 0 }, ...content.islands];
   app.byId = Object.fromEntries(app.islandList.map(i => [i.id, i]));
+  app.sound = new Sound({ music: Settings.get('music'), sfx: Settings.get('sfx'), volume: Settings.get('volume') });
+  app.discById = {};
+  app.islandList.forEach(isl => (isl.discoveries || []).forEach(d => { app.discById[d.id] = { ...d, island: isl.id }; }));
   app.questionById = {};
   content.islands.forEach(i => i.quiz.forEach(q => { app.questionById[q.id] = { ...q, island: i.id }; }));
 
@@ -67,7 +73,10 @@ async function boot() {
   if (!ok) document.body.classList.add('no-webgl');
   else wireWorld();
 
-  setTimeMode(Settings.get('timeMode') || 'day', false);
+  if (!Settings.get('v2')) { Settings.set('timeMode', 'scene'); Settings.set('v2', true); }
+  setTimeMode(Settings.get('timeMode') || 'scene', false);
+  if (app.world) app.world.setFoundState(app.state.foundList());
+  syncSoundButton();
   buildLabels();
   $('#loading').classList.add('done');
   setTimeout(() => $('#loading').remove(), 600);
@@ -96,7 +105,8 @@ function afterIntro() {
 // 3D 世界的事件
 function wireWorld() {
   const w = app.world;
-  w.on.frame = () => { updateLabels(); updateBubble(); updateShells(); };
+  w.on.frame = dt => { updateLabels(); updateBubble(); updateShells(); updateSpots(); updateNear(); stepSounds(dt); };
+  w.on.tapAnchor = (island, key) => { const d = findDisc(island, key); if (d) openDiscovery(d.id); };
   w.on.skip = () => skipIntro();
   w.on.tapAgent = agent => openBubble(agent);
   w.on.tapShell = i => pickShell(i);
@@ -110,6 +120,7 @@ function wireWorld() {
   w.on.tapGround = p => { if (w.player) w.movePlayerToPoint(p); };
   w.on.tapEmpty = () => closeBubble();
   w.on.playerEnter = id => {
+    app.sound.play('tick');
     const gained = app.state.visit(id);
     if (gained) toast(`第一次登上「${app.byId[id].name}」 +${app.content.rpgRules.firstVisit} EXP`);
     renderHUD();
@@ -120,6 +131,7 @@ function wireWorld() {
 }
 
 function playIntro(done) {
+  setFocus(null);
   document.body.classList.add('cinema');
   const intro = $('#intro'); intro.hidden = false;
   app.introDone = () => {
@@ -247,6 +259,7 @@ function updateShells() {
 function pickShell(i) {
   if (!app.world.pickShell(i)) return;
   app.state.addItem('shell', 1);
+  app.sound.play('shell');
   toast('撿到 🐚 貝殼 +1（20 秒後會再出現）');
   bumpBag();
 }
@@ -278,9 +291,12 @@ function onStateEvent(type, d) {
   if (type === 'profile' && app.world) {
     const s = app.state.save;
     app.world.setPlayer(s ? s.style : null, s ? (s.at || 'center') : 'center');
+    app.world.resetFoundState(); app.world.setFoundState(app.state.foundList());
   }
+  if (type === 'change' || type === 'profile') renderBanner();
 }
 function showLevelUp(lv) {
+  app.sound.play('levelup');
   const el = $('#levelup');
   const lines = app.content.rpgRules.levelUpLines;
   el.innerHTML = `<strong>Lv ${lv}</strong>${esc(lines[(lv - 2) % lines.length])}`;
@@ -298,11 +314,40 @@ function openIsland(id, opts = {}) {
   const w = app.world;
   closeModal(true);
   if (!w) { showPanel(id, opts.tab); if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); } return; }
+  closeCard(true);
+  if (!$('#panel').hidden && !opts.tab) { $('#panel').hidden = true; app.panelId = null; w.setViewShift(0, 0); w.inputEnabled = true; }
   if (w.player && app.state.hasAdventurer) {
     w.setFollow(false);
     w.walkPlayerTo(id, () => { w.setFollow(Settings.get('follow') !== false); });
   } else if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); }
-  w.flyToIsland(id, () => showPanel(id, opts.tab));
+  setFocus(id);
+  app.sound.play('open');
+  w.flyToIsland(id, () => {
+    if (opts.tab) showPanel(id, opts.tab);
+    else if (!Settings.get('spotHint')) { Settings.set('spotHint', true); toast('找找島上閃閃發亮的 ✨，點一下就能探索！', 4200); }
+  });
+}
+function setFocus(id) {
+  app.focus = id;
+  if (app.world) app.world.setSceneFocus(id || 'center');
+  const isl = id ? app.byId[id] : null;
+  app.sound.setAmbience(id ? AMBIENCE[id] || 'sea' : 'sea', isl && Settings.get('timeMode') === 'scene' ? (isl.mood || 'day') : undefined);
+  renderBanner();
+}
+function renderBanner() {
+  const b = $('#banner'), id = app.focus;
+  if (!id || !app.world) { b.hidden = true; return; }
+  const isl = app.byId[id], f = app.state.foundOn(id);
+  const stamped = app.state.save && app.state.save.stamps.includes(id);
+  const open = id !== 'center' && app.state.challengeOpen(id);
+  const mood = { dusk: '黃昏', night: '春天的夜晚', day: '白天' }[isl.mood] || '';
+  b.innerHTML = `<span class="t">${esc(isl.name)}</span><span class="m">${esc(mood)}・探索 ${f.done}/${f.total}${stamped ? '・🏅' : ''}</span>
+    <button class="btn sm ghost" type="button" data-b="book">📖 手冊</button>
+    ${id === 'center' ? '<button class="btn sm" type="button" data-b="final">⚔️ 最終挑戰</button>' : `<button class="btn sm${open ? '' : ' ghost'}" type="button" data-b="boss" ${open ? '' : 'aria-disabled="true"'}>⚔️ 島主挑戰</button>`}`;
+  b.hidden = false;
+  b.querySelector('[data-b="book"]').addEventListener('click', () => { closeCard(true); showPanel(id, id === 'center' ? 'overview' : 'explore'); });
+  const boss = b.querySelector('[data-b="boss"]'); if (boss) boss.addEventListener('click', () => openBoss(id));
+  const fin = b.querySelector('[data-b="final"]'); if (fin) fin.addEventListener('click', () => openFinalCard());
 }
 function showPanel(id, tab) {
   const isl = app.byId[id];
@@ -311,7 +356,7 @@ function showPanel(id, tab) {
   panel.hidden = false;
   $('#panel-kicker').textContent = id === 'center' ? '中央島・總複習島' : `第 ${isl.order} 島・課程群島`;
   $('#panel-title').textContent = isl.name;
-  const tabs = id === 'center' ? [['overview', '總覽'], ['review', '總複習'], ['final', '最終挑戰'], ['passport', '護照']] : [['material', '教材'], ['worksheet', '學習單'], ['challenge', '挑戰']];
+  const tabs = id === 'center' ? [['overview', '總覽'], ['explore', '探索'], ['review', '總複習'], ['final', '最終挑戰'], ['passport', '護照']] : [['explore', '探索'], ['material', '教材'], ['worksheet', '學習單'], ['challenge', '島主挑戰']];
   const body = $('#panel-body');
   const npc = id === 'center' ? { name: app.content.mascot.name, title: '群島嚮導', sample: true, story: app.content.mascot.centerLines, hint: app.content.mascot.tips } : isl.npc;
   const face = id === 'center' ? '<svg aria-hidden="true"><use href="#mascot"/></svg>' : NPC_FACE[(isl.order - 1) % NPC_FACE.length];
@@ -335,6 +380,7 @@ function showPanel(id, tab) {
   body.querySelector('[data-npc="story"]').addEventListener('click', () => { si = (si + 1) % npc.story.length; $('#npc-say').textContent = npc.story[si]; });
   body.querySelector('[data-npc="hint"]').addEventListener('click', () => { hi = (hi + 1) % npc.hint.length; $('#npc-say').textContent = '提示：' + npc.hint[hi]; });
   body.querySelector('[data-npc="go"]').addEventListener('click', () => selectTab(id === 'center' ? 'final' : 'challenge'));
+  app.sound.play('open');
   $$('.tab', body).forEach(b => {
     b.addEventListener('click', () => selectTab(b.dataset.tab));
     b.addEventListener('keydown', e => {
@@ -360,7 +406,8 @@ function selectTab(k) {
   const tp = $('#tabpanel');
   tp.setAttribute('aria-labelledby', 'tab-' + k);
   const id = app.panelId;
-  if (k === 'material') renderMaterial(tp, app.byId[id]);
+  if (k === 'explore') renderExploreList(tp, app.byId[id]);
+  else if (k === 'material') renderMaterial(tp, app.byId[id]);
   else if (k === 'worksheet') renderWorksheet(tp, app.byId[id]);
   else if (k === 'challenge') renderChallengeIntro(tp, app.byId[id]);
   else if (k === 'overview') renderOverview(tp);
@@ -433,15 +480,21 @@ function renderWorksheet(tp, isl) {
     download(`${app.content.site.title}-${isl.name}-學習單.md`, md, 'text/markdown;charset=utf-8');
   });
   $('#ws-clear', tp).addEventListener('click', () => {
-    if (!confirm('確定要清空這座島的學習單嗎？')) return;
+    askConfirm('確定要清空這座島的學習單嗎？', '清空').then(ok => { if (!ok) return;
     $$('textarea[data-ws]', tp).forEach(t => { t.value = ''; });
-    collect(); $('#ws-msg', tp).textContent = '已清空。';
+    collect(); $('#ws-msg', tp).textContent = '已清空。'; });
   });
 }
 
 // ---------- 挑戰（一次一題、作答後鎖定、看詳解） ----------
-function renderChallengeIntro(tp, isl) {
+function renderChallengeIntro(tp, isl, inCard) {
   const s = app.state, r = app.content.rpgRules;
+  if (!s.challengeOpen(isl.id)) {
+    const f = s.foundOn(isl.id);
+    tp.innerHTML = `<div class="result-box"><p>🔒 島主挑戰還沒開放。</p><p>先完成島上的探索：<strong>${f.done} / ${f.total}</strong>（需要 ${Math.min(r.challengeNeed, f.total)} 個）。</p><p class="note">在島上找找閃閃發亮的 ✨，點一下就能探索。</p></div>`;
+    if (!inCard) { tp.insertAdjacentHTML('beforeend', '<button class="btn" type="button" id="go-explore">看看要探索什麼</button>'); $('#go-explore', tp).addEventListener('click', () => selectTab('explore')); }
+    return;
+  }
   const best = s.save ? (s.save.best[isl.id] ?? null) : (s.course().quiz[isl.id] ?? null);
   const stamped = s.save && s.save.stamps.includes(isl.id);
   tp.innerHTML = `
@@ -459,11 +512,12 @@ function renderChallengeIntro(tp, isl) {
       app.state.updateCourse(cc => { cc.quiz[isl.id] = Math.max(cc.quiz[isl.id] || 0, score); });
       const res = app.state.finishChallenge(isl.id, score);
       const pass = score >= r.passCorrect;
-      if (res && res.stamped) toast(`🏅 得到「${isl.name}」島章！ +${r.firstClear} EXP`);
+      if (res && res.stamped) { toast(`🏅 得到「${isl.name}」島章！ +${r.firstClear} EXP`); app.sound.play('stamp'); }
+      renderBanner();
       return `<div class="result-box"><p style="font-size:20px"><strong>${score} / ${qs.length}</strong>　${pass ? '🎉 過關！' : '差一點點，再試一次！'}</p>
         ${res && res.stamped ? `<p>🏅 你得到了「${esc(isl.name)}」島章！</p>` : pass && app.state.save ? '<p class="note">這座島的島章已經蓋過了，重玩不會重複蓋章。</p>' : ''}
         ${app.state.centerUnlocked() && res && res.stamped ? '<p>中央島的最終挑戰已經開放了！</p>' : ''}</div>`;
-    }, () => renderChallengeIntro(tp, isl));
+    }, () => renderChallengeIntro(tp, isl, inCard), inCard ? { onBack: closeCard } : {});
   });
   const cc = $('#ch-create', tp); if (cc) cc.addEventListener('click', openCreate);
 }
@@ -484,6 +538,7 @@ function runQuiz(tp, questions, onFinish, onAgain, opts = {}) {
   const answer = (q, chosen) => {
     const correct = chosen === q.answer; // 以選項 ID 判分
     if (correct) score++;
+    app.sound.play(correct ? 'correct' : 'wrong');
     $$('.opt', tp).forEach(b => {
       b.disabled = true;
       if (b.dataset.opt === q.answer) b.classList.add('correct');
@@ -499,9 +554,9 @@ function runQuiz(tp, questions, onFinish, onAgain, opts = {}) {
   };
   const finish = () => {
     const html = onFinish(score);
-    tp.innerHTML = html + `<div class="row"><button class="btn" type="button" id="again">🔁 再玩一次</button><button class="btn ghost" type="button" id="back">回到教材</button></div>`;
+    tp.innerHTML = html + `<div class="row"><button class="btn" type="button" id="again">🔁 再玩一次</button><button class="btn ghost" type="button" id="back">${opts.onBack ? '回到島上' : '回到教材'}</button></div>`;
     $('#again', tp).addEventListener('click', onAgain);
-    $('#back', tp).addEventListener('click', () => selectTab(app.panelId === 'center' ? 'overview' : 'material'));
+    $('#back', tp).addEventListener('click', () => opts.onBack ? opts.onBack() : selectTab(app.panelId === 'center' ? 'overview' : 'material'));
     $('#again', tp).focus({ preventScroll: true });
   };
   show();
@@ -528,10 +583,14 @@ function renderOverview(tp) {
   app.state.markRead('center');
 }
 function clearProgress() {
-  if (!confirm('確定要清除學習進度嗎？已讀、學習單、測驗分數、EXP 與島章都會歸零（冒險者代號和造型會保留）。')) return;
+  askConfirm('確定要清除學習進度嗎？已讀、學習單、探索、測驗分數、EXP 與島章都會歸零（冒險者代號和造型會保留）。', '清除').then(ok => {
+  if (!ok) return;
   app.state.clearCourse();
+  if (app.world) { app.world.resetFoundState(); }
   toast('學習進度已清除');
+  renderBanner();
   if (app.panelId) selectTab(app.tab);
+  });
 }
 function pickReview(n) {
   // 從各島題庫輪流抽題
@@ -580,7 +639,7 @@ function renderReview(tp) {
     $('#rv-miss', tp).scrollIntoView({ block: 'center', behavior: app.reduced ? 'auto' : 'smooth' });
   });
 }
-function renderFinal(tp) {
+function renderFinal(tp, inCard) {
   const s = app.state, r = app.content.rpgRules;
   if (!s.hasAdventurer) {
     tp.innerHTML = `<div class="result-box"><p>最終挑戰需要先建立冒險者，才能記錄島章與證書。</p></div><button class="btn" type="button" id="fn-create">🧭 建立冒險者</button>`;
@@ -601,10 +660,11 @@ function renderFinal(tp) {
     runQuiz(tp, qs, score => {
       app.state.finishFinal(score);
       const ok = score >= r.finalPass;
+      if (ok) app.sound.play('stamp');
       setTimeout(() => { const b = $('#fn-cert2', tp); if (b) b.addEventListener('click', () => openCertificate()); }, 0);
       return `<div class="result-box"><p style="font-size:20px"><strong>${score} / ${qs.length}</strong>　${ok ? '🎉 通過最終挑戰！' : `需要答對 ${r.finalPass} 題，再挑戰一次吧！`}</p>
         ${ok ? '<button class="btn alt" type="button" id="fn-cert2">📜 領取冒險證書</button>' : ''}</div>`;
-    }, () => renderFinal(tp), { label: '最終挑戰' });
+    }, () => renderFinal(tp, inCard), Object.assign({ label: '最終挑戰' }, inCard ? { onBack: closeCard } : {}));
   });
   const cb = $('#fn-cert', tp); if (cb) cb.addEventListener('click', () => openCertificate());
 }
@@ -675,11 +735,14 @@ function openCreate() {
       e.preventDefault();
       const name = $('#cr-name', root).value.trim();
       if (name.length < 2 || name.length > 12) { $('#cr-err', root).textContent = '代號要 2～12 個字喔。'; $('#cr-name', root).focus(); return; }
-      if (s.profiles.saves[name] && !confirm(`「${name}」已經有存檔了，要接著玩這個存檔嗎？`)) return;
-      s.createAdventurer(name, style);
-      Settings.set('browseChosen', true);
-      closeModal();
-      toast(`冒險開始！${name}，先走到任一座島和課程導師聊聊吧。`, 3600);
+      const go = () => {
+        s.createAdventurer(name, style);
+        Settings.set('browseChosen', true);
+        closeModal();
+        app.sound.play('levelup');
+        toast(`冒險開始！${name}，到島上找找閃閃發亮的 ✨ 吧。`, 3600);
+      };
+      if (s.profiles.saves[name]) askConfirm(`「${name}」已經有存檔了，要接著玩這個存檔嗎？`, '接著玩').then(ok => ok && go()); else go();
     });
     $('#cr-browse', root).addEventListener('click', () => { Settings.set('browseChosen', true); s.browseOnly(); closeModal(); toast('先逛逛模式：可以讀完全部內容，想玩時按「建立冒險者」。', 3600); });
   });
@@ -694,8 +757,8 @@ function openList(fallback) {
     ${app.islandList.map(isl => `<article class="list-island" data-group="${esc(isl.group || '')}">
       <h3>${isl.id === 'center' ? '★' : isl.order + '.'} ${esc(isl.name)} <small class="note">${isl.id === 'center' ? '中央島・總複習' : esc(isl.landmark || '')}</small></h3>
       <p style="margin:2px 0 8px">${esc(isl.intro)}</p>
-      <div class="row"><button class="btn sm" type="button" data-open="${isl.id}">打開${isl.id === 'center' ? '總複習' : '教材'}</button>
-      ${isl.id !== 'center' ? `<button class="btn sm ghost" type="button" data-open="${isl.id}" data-tab="worksheet">學習單</button><button class="btn sm alt" type="button" data-open="${isl.id}" data-tab="challenge">與導師對話・挑戰</button>` : `<button class="btn sm alt" type="button" data-open="center" data-tab="final">最終挑戰</button>`}</div>
+      <div class="row"><button class="btn sm" type="button" data-open="${isl.id}" data-tab="${isl.id === 'center' ? 'overview' : 'material'}">打開${isl.id === 'center' ? '總複習' : '教材'}</button>${isl.id !== 'center' ? `<button class="btn sm ghost" type="button" data-open="${isl.id}" data-tab="explore">探索關卡</button>` : ''}
+      ${isl.id !== 'center' ? `<button class="btn sm ghost" type="button" data-open="${isl.id}" data-tab="worksheet">學習單</button><button class="btn sm alt" type="button" data-open="${isl.id}" data-tab="challenge">導師與島主挑戰</button>` : `<button class="btn sm alt" type="button" data-open="center" data-tab="final">最終挑戰</button>`}</div>
       <details><summary>內容重點與居民對話</summary>
         <ul class="points">${isl.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
         ${isl.npc && isl.npc.story ? `<p><strong>${esc(isl.npc.name)}</strong>（${esc(isl.npc.title)}）${sampleBadge(isl.npc.sample)}：${isl.npc.story.map(esc).join('')}</p>` : ''}
@@ -743,7 +806,7 @@ function openSearch() {
       $('#q-count', root).textContent = hits.length ? `找到 ${hits.length} 筆` : '找不到，換個關鍵字試試。';
       const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
       res.innerHTML = hits.map((e, i) => `<button type="button" class="search-hit" data-i="${i}"><strong>${esc(e.name)}</strong>　${esc(e.text).replace(re, m => `<mark>${m}</mark>`)}</button>`).join('');
-      $$('.search-hit', res).forEach(b => b.addEventListener('click', () => { const e = hits[+b.dataset.i]; closeModal(true); if (app.world) openIsland(e.id, { tab: e.tab }); else showPanel(e.id, e.tab); }));
+      $$('.search-hit', res).forEach(b => b.addEventListener('click', () => { const e = hits[+b.dataset.i]; const tab = e.tab || (e.id === 'center' ? 'overview' : 'material'); closeModal(true); if (app.world) openIsland(e.id, { tab }); else showPanel(e.id, tab); }));
     };
     input.addEventListener('input', run);
     setTimeout(() => input.focus(), 30);
@@ -760,7 +823,7 @@ function openBag() {
     <details><summary>交易表</summary><ul class="points">${app.content.trades.map(t => { const who = findPerson(t.resident); return `<li>${esc(who ? who.name : t.resident)}：${fmtItems(t.give)} → ${fmtItems(t.get)}</li>`; }).join('')}</ul></details>
     <p class="note">這只是小遊戲，不是真實貨幣，也不連到任何付款。背包存在這台電腦的瀏覽器裡。</p>
     <button class="btn ghost" type="button" id="bag-clear">清空背包</button>`, root => {
-    $('#bag-clear', root).addEventListener('click', () => { if (confirm('確定清空背包嗎？會回到 3 個貝殼。')) { s.clearBag(); closeModal(); openBag(); } });
+    $('#bag-clear', root).addEventListener('click', () => askConfirm('確定清空背包嗎？會回到 3 個貝殼。', '清空').then(ok => { if (ok) { s.clearBag(); closeModal(); openBag(); } }));
   });
 }
 function fmtItems(o) { const items = app.content.items; return Object.entries(o).map(([k, n]) => `${items[k] ? items[k].icon + items[k].name : k}×${n}`).join('＋'); }
@@ -770,12 +833,17 @@ function findPerson(id) {
 }
 
 function openSettings() {
-  const q = Settings.get('quality'), tm = Settings.get('timeMode') || 'day';
+  const q = Settings.get('quality'), tm = Settings.get('timeMode') || 'scene';
   openModal('設定', `<div class="settings-grid">
     <fieldset><legend>底色主題</legend><div class="theme-choices seg" role="group" aria-label="底色主題">
       ${[['sunset', '夕陽', '#fbefe3'], ['beach', '沙灘', '#f6ead2'], ['dusk', '暮色', '#2b1e1a']].map(([k, n, c]) => `<button type="button" data-theme-set="${k}" aria-pressed="${document.documentElement.dataset.theme === k}"><i style="background:${c}"></i>${n}</button>`).join('')}</div></fieldset>
     <fieldset><legend>晝夜光線</legend><div class="seg" role="group" aria-label="晝夜">${Object.entries(MODE_NAME).map(([k, n]) => `<button type="button" data-time="${k}" aria-pressed="${tm === k}">${n}</button>`).join('')}</div>
-      <p class="note">自動流動約 2.5 分鐘走完一天；同步現在時間會用這台電腦的時鐘。</p></fieldset>
+      <p class="note">「跟著課文情境」：鹿柴是黃昏、鳥鳴澗是春天的夜晚。自動流動約 2.5 分鐘走完一天；同步現在時間會用這台電腦的時鐘。</p></fieldset>
+    <fieldset><legend>聲音</legend><div class="seg" role="group" aria-label="聲音">
+      <button type="button" id="st-music" aria-pressed="${app.sound.musicOn}">🎵 背景音樂：${app.sound.musicOn ? '開' : '關'}</button>
+      <button type="button" id="st-sfx" aria-pressed="${app.sound.sfxOn}">🔔 音效與環境音：${app.sound.sfxOn ? '開' : '關'}</button></div>
+      <label for="st-vol" class="note">音量</label><input type="range" id="st-vol" class="vol" min="0" max="1" step=".05" value="${app.sound.volume}">
+      <p class="note">音樂與音效都是網頁即時合成的五聲音階古箏聲、山林與溪水聲。</p></fieldset>
     <fieldset><legend>畫質</legend><div class="seg" role="group" aria-label="畫質">${[['auto', '自動'], ['high', '高畫質'], ['low', '低畫質（關陰影、人和動物減半）']].map(([k, n]) => `<button type="button" data-q="${k}" aria-pressed="${q === k}">${n}</button>`).join('')}</div></fieldset>
     <fieldset><legend>減少動態</legend><div class="seg"><button type="button" id="st-reduced" aria-pressed="${app.reduced}">${app.reduced ? '已開啟：動畫暫停' : '關閉中：按這裡暫停動畫'}</button></div>
       <p class="note">容易暈眩的人可以開啟：居民、動物、雲、鳥、海浪都會停下，鏡頭直接切換。</p></fieldset>
@@ -788,6 +856,9 @@ function openSettings() {
     $$('[data-theme-set]', root).forEach(b => b.addEventListener('click', () => { applyTheme(b.dataset.themeSet); $$('[data-theme-set]', root).forEach(x => x.setAttribute('aria-pressed', String(x === b))); syncTimeButtons(root); }));
     $$('[data-time]', root).forEach(b => b.addEventListener('click', () => { setTimeMode(b.dataset.time); syncTimeButtons(root); }));
     $$('[data-q]', root).forEach(b => b.addEventListener('click', () => { setQuality(b.dataset.q); $$('[data-q]', root).forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
+    $('#st-music', root).addEventListener('click', e => { app.sound.unlock(); app.sound.setMusic(!app.sound.musicOn); Settings.set('music', app.sound.musicOn); e.currentTarget.setAttribute('aria-pressed', String(app.sound.musicOn)); e.currentTarget.textContent = `🎵 背景音樂：${app.sound.musicOn ? '開' : '關'}`; syncSoundButton(); });
+    $('#st-sfx', root).addEventListener('click', e => { app.sound.unlock(); app.sound.setSfx(!app.sound.sfxOn); Settings.set('sfx', app.sound.sfxOn); e.currentTarget.setAttribute('aria-pressed', String(app.sound.sfxOn)); e.currentTarget.textContent = `🔔 音效與環境音：${app.sound.sfxOn ? '開' : '關'}`; syncSoundButton(); });
+    $('#st-vol', root).addEventListener('input', e => { app.sound.setVolume(+e.target.value); Settings.set('volume', +e.target.value); });
     $('#st-reduced', root).addEventListener('click', e => { setReduced(!app.reduced); e.currentTarget.setAttribute('aria-pressed', String(app.reduced)); e.currentTarget.textContent = app.reduced ? '已開啟：動畫暫停' : '關閉中：按這裡暫停動畫'; });
     $('#st-intro', root).addEventListener('click', () => { closeModal(true); closePanel(); if (app.world && !app.reduced) playIntro(); else toast('「減少動態」開啟時不播放開場運鏡。'); });
     $('#st-create', root).addEventListener('click', openCreate);
@@ -824,8 +895,8 @@ function openSaveCode() {
     <label class="btn ghost" for="sc-file" style="cursor:pointer">⬆️ 匯入 JSON 檔</label><input type="file" id="sc-file" accept="application/json,.json" class="sr-only"></div>`, root => {
     const ok = msg => { closeModal(); toast(msg); };
     const restore = clean => {
-      if (s.profiles.saves[clean.name] && !confirm(`這台電腦已經有「${clean.name}」的存檔，要用接關碼的內容覆蓋嗎？`)) return;
-      s.importSave(clean); ok(`已還原「${clean.name}」的冒險進度！`);
+      const go = () => { s.importSave(clean); if (app.world) { app.world.resetFoundState(); app.world.setFoundState(s.foundList()); } ok(`已還原「${clean.name}」的冒險進度！`); };
+      if (s.profiles.saves[clean.name]) askConfirm(`這台電腦已經有「${clean.name}」的存檔，要用接關碼的內容覆蓋嗎？`, '覆蓋').then(y => y && go()); else go();
     };
     if (code) {
       $('#sc-copy', root).addEventListener('click', async () => { const r = await copyText(code); toast(r ? '已複製接關碼' : '複製失敗，請手動選取文字複製'); });
@@ -919,6 +990,7 @@ function openBubble(agent) {
   app.bubbleAgent = agent;
   app.bubbleLine = 0;
   agent.talk(w.camera.position);
+  app.sound.play(agent.type === 'animal' ? 'hop' : 'open');
   if (agent.type === 'animal' || agent.type === 'npc') agent.hop = .5;
   document.body.classList.add('bubble-open');
   renderBubble();
@@ -940,7 +1012,7 @@ function renderBubble(extra = '') {
     b.innerHTML = `<p class="who">${esc(info.title || '')}・${esc(isl ? isl.name : '')}</p><h3>${esc(info.name)}${sampleBadge(true)}</h3>
       <p class="say">${esc(lines[app.bubbleLine % lines.length])}</p>
       <div class="row"><button class="btn sm ghost" type="button" data-b="more">💬 再聊聊</button>
-      <button class="btn sm" type="button" data-b="open">${info.mascot ? '🏝️ 打開中央島' : '⚔️ 接受挑戰'}</button>
+      ${info.mascot ? '<button class="btn sm ghost" type="button" data-b="book">📖 中央島手冊</button><button class="btn sm" type="button" data-b="final">⚔️ 最終挑戰</button>' : `<button class="btn sm${app.state.challengeOpen(info.island) ? '' : ' ghost'}" type="button" data-b="boss">⚔️ 島主挑戰${app.state.challengeOpen(info.island) ? '' : '（' + app.state.foundOn(info.island).done + '/' + Math.min(app.content.rpgRules.challengeNeed, app.state.foundOn(info.island).total) + '）'}</button>`}
       <button class="btn sm ghost" type="button" data-b="close" aria-label="關閉">✕</button></div>`;
   } else {
     const trade = app.content.trades.find(t => t.resident === info.id);
@@ -961,7 +1033,9 @@ function bubbleAction(act) {
   const info = a.info || {};
   if (act === 'close') return closeBubble();
   if (act === 'more') { app.bubbleLine++; a.wave(1.4); renderBubble(); return; }
-  if (act === 'open') { closeBubble(); openIsland(info.mascot ? 'center' : info.island, { tab: info.mascot ? 'overview' : 'challenge' }); return; }
+  if (act === 'boss') { closeBubble(); openBoss(info.island); return; }
+  if (act === 'final') { closeBubble(); openFinalCard(); return; }
+  if (act === 'book') { closeBubble(); showPanel('center', 'overview'); return; }
   if (act === 'trade') {
     const t = app.content.trades.find(x => x.resident === info.id);
     const ok = app.state.canAfford(t.give);
@@ -975,7 +1049,7 @@ function bubbleAction(act) {
     const t = app.content.trades.find(x => x.resident === info.id);
     const firstTime = app.state.save && !(app.state.save.traded || []).includes(info.id);
     if (app.state.trade(t)) {
-      a.wave(2); a.hop = .5;
+      a.wave(2); a.hop = .5; app.sound.play('trade');
       bumpBag();
       toast(`交易成功！得到 ${fmtItems(t.get)}${firstTime && app.state.hasAdventurer ? `（+${app.content.rpgRules.firstTrade} EXP）` : ''}`);
       renderBubble(`<div class="trade">😊 ${esc(t.thanks)}</div>`);
@@ -1020,8 +1094,22 @@ function bindUI() {
   $('#btn-home').addEventListener('click', () => {
     closeBubble(); closeModal(true);
     if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; if (app.world) { app.world.inputEnabled = true; app.world.setViewShift(0, 0); } }
-    if (app.world) { app.world.setFollow(false); $('#btn-follow').setAttribute('aria-pressed', 'false'); Settings.set('follow', false); app.world.flyHome(); }
+    closeCard(true);
+    if (app.world) { app.world.setFollow(false); $('#btn-follow').setAttribute('aria-pressed', 'false'); Settings.set('follow', false); app.world.flyHome(); setFocus(null); }
   });
+  $('#btn-sound').addEventListener('click', () => {
+    app.sound.unlock();
+    const on = !(app.sound.musicOn || app.sound.sfxOn);
+    app.sound.setMusic(on); app.sound.setSfx(on); Settings.set('music', on); Settings.set('sfx', on);
+    syncSoundButton(); toast(on ? '🔊 音樂與音效已開啟' : '🔇 音樂與音效已關閉');
+  });
+  $('#btn-restart').addEventListener('click', openRestart);
+  $('#near').addEventListener('click', () => { if (app.nearDisc) openDiscovery(app.nearDisc); });
+  // 第一次點擊或按鍵後才開始播放聲音（瀏覽器規定）
+  const unlock = () => { app.sound.unlock(); app.sound.setAmbience(app.focus ? AMBIENCE[app.focus] || 'sea' : 'sea'); };
+  document.addEventListener('pointerdown', unlock, { once: true, capture: true });
+  document.addEventListener('keydown', unlock, { once: true, capture: true });
+  document.addEventListener('click', e => { const b = e.target.closest('.btn, .tool, .opt, .tab, .island-label'); if (b && !b.disabled) app.sound.play('tick'); }, true);
   const fol = $('#btn-follow');
   fol.setAttribute('aria-pressed', String(Settings.get('follow') !== false));
   fol.addEventListener('click', () => {
@@ -1039,8 +1127,8 @@ function bindUI() {
   $$('.themebar [data-theme-set]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeSet)));
   $$('.timebar [data-time]').forEach(b => b.addEventListener('click', () => setTimeMode(b.dataset.time)));
   $('#clock').addEventListener('click', () => {
-    const order = ['day', 'dusk', 'night', 'auto', 'realtime'];
-    const cur = Settings.get('timeMode') || 'day';
+    const order = ['scene', 'day', 'dusk', 'night', 'auto', 'realtime'];
+    const cur = Settings.get('timeMode') || 'scene';
     const next = order[(order.indexOf(cur) + 1) % order.length];
     setTimeMode(next); toast('時段：' + MODE_NAME[next]);
   });
@@ -1050,7 +1138,9 @@ function bindUI() {
   document.addEventListener('keydown', e => {
     if (app.introDone) { skipIntro(); e.preventDefault(); return; }
     if (e.key === 'Escape') {
+      if (!$('#confirm').hidden) { app.confirmResolve && app.confirmResolve(false); return; }
       if (closeModal()) return;
+      if (closeCard()) return;
       if (closeBubble()) return;
       if (!$('#panel').hidden) { closePanel(); return; }
       return;
@@ -1060,10 +1150,11 @@ function bindUI() {
       const f = $$('#modal button, #modal input, #modal textarea, #modal [tabindex="0"], #modal summary, #modal a[href]').filter(x => !x.disabled && x.offsetParent !== null);
       if (f.length) { const first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); } else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); } }
     }
+    if (e.code === 'KeyE' && app.nearDisc && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && $('#modal').hidden && $('#card').hidden) { openDiscovery(app.nearDisc); e.preventDefault(); return; }
     const k = KEYMAP[e.code];
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const focusOnUI = document.activeElement && document.activeElement !== document.body && document.activeElement.id !== 'scene' && /BUTTON/.test(document.activeElement.tagName) && e.code.startsWith('Arrow');
-    if (k && app.world && app.world.player && !typing && !focusOnUI && $('#modal').hidden && $('#panel').hidden) {
+    if (k && app.world && app.world.player && !typing && !focusOnUI && $('#modal').hidden && $('#panel').hidden && $('#card').hidden) {
       app.world.keys.add(k); e.preventDefault();
       if (Settings.get('follow') !== false) app.world.setFollow(true);
     }
@@ -1071,6 +1162,231 @@ function bindUI() {
   document.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k && app.world) app.world.keys.delete(k); });
   window.addEventListener('blur', () => { if (app.world) app.world.keys.clear(); });
   $('#scene').addEventListener('pointerdown', () => { if (app.introDone) skipIntro(); });
+}
+
+// ============================================================
+// 第 2 版：場景裡的探索關卡
+function findDisc(island, key) { return Object.values(app.discById).find(d => d.island === island && d.anchor === key); }
+function openDiscovery(id) {
+  const d = app.discById[id]; if (!d) return;
+  closeBubble(); closeModal(true);
+  if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; if (app.world) { app.world.setViewShift(0, 0); app.world.inputEnabled = true; } }
+  const w = app.world;
+  if (app.focus !== d.island) setFocus(d.island);
+  const a = w && w.anchor(d.island, d.anchor);
+  if (a) {
+    if (w.player && app.state.hasAdventurer) { w.setFollow(false); w.walkPlayerToAnchor(a); }
+    w.focusAnchor(a, () => showCard(d));
+    return;
+  }
+  showCard(d);
+}
+function cardShell(icon, where, title) {
+  const card = $('#card');
+  if (card.hidden) app.cardReturn = document.activeElement;
+  card.innerHTML = `<div class="card-head"><div class="card-icon" aria-hidden="true">${icon}</div><div style="flex:1;min-width:0"><p class="where">${esc(where)}</p><h2 id="card-title" tabindex="-1">${esc(title)}</h2></div><button class="icon-btn" type="button" data-c="close" aria-label="關閉（Esc）">✕</button></div><div id="card-body"></div>`;
+  card.hidden = false;
+  document.body.classList.add('card-open');
+  card.querySelector('[data-c="close"]').addEventListener('click', () => closeCard());
+  card.scrollTop = 0;
+  if (app.world) {
+    app.world.inputEnabled = false;
+    if (window.innerWidth <= 760) app.world.setViewShift(0, window.innerHeight * .3);
+    else app.world.setViewShift(-(card.offsetWidth + 14) / 2, 0);
+  }
+  setTimeout(() => { const t = $('#card-title'); t && t.focus({ preventScroll: true }); }, 30);
+  return $('#card-body');
+}
+function closeCard(silent) {
+  const card = $('#card'); if (card.hidden) return false;
+  card.hidden = true; app.cardDisc = null;
+  document.body.classList.remove('card-open');
+  if (app.world) { app.world.inputEnabled = $('#panel').hidden && $('#modal').hidden; app.world.setViewShift(0, 0); }
+  if (!silent) app.sound.play('close');
+  return true;
+}
+function playFx(d) {
+  if (app.world) app.world.fx(d.fx, d.island, d.anchor);
+  app.sound.play(FX_SOUND[d.fx] || 'discover');
+  if (d.fx === 'moon') setTimeout(() => app.sound.play('chirp'), 1300);
+}
+function showCard(d) {
+  const isl = app.byId[d.island], found = app.state.isFound(d.id);
+  app.cardDisc = d.id;
+  const body = cardShell(d.icon, `${isl.name}・探索`, d.title);
+  body.innerHTML = `${d.line ? `<p class="line" lang="zh-Hant">${esc(d.line)}</p>` : ''}<p class="txt">${esc(d.text)}</p>
+    <div class="row"><button class="btn sm ghost" type="button" data-c="replay">🔁 再看一次</button>${found ? '<span class="done-flag">✅ 已完成，可以再玩一次</span>' : ''}</div>
+    <div id="task" style="margin-top:10px"></div>`;
+  body.querySelector('[data-c="replay"]').addEventListener('click', () => playFx(d));
+  renderTask($('#task', body), d);
+  playFx(d);
+}
+function renderTask(box, d) {
+  const t = d.task;
+  const done = () => discoverySolved(box, d);
+  if (t.type === 'order') {
+    let next = 0;
+    const pool = shuffle(t.lines.map((l, i) => ({ l, i })));
+    box.innerHTML = `<p class="quiz-q">照順序點一點，把詩句排回來：</p><div class="order-picked" aria-live="polite" id="picked"><span class="note">（從下面依序點選）</span></div>
+      <div class="order-pool">${pool.map(p => `<button type="button" class="opt" data-i="${p.i}">${esc(p.l)}</button>`).join('')}</div><div id="tfb" aria-live="polite"></div>`;
+    $$('.order-pool .opt', box).forEach(b => b.addEventListener('click', () => {
+      if (+b.dataset.i === next) {
+        const picked = $('#picked', box); if (!next) picked.innerHTML = '';
+        picked.insertAdjacentHTML('beforeend', `<span>${esc(t.lines[next])}</span>`);
+        b.disabled = true; b.classList.add('correct'); next++;
+        app.sound.play('tick');
+        if (next === t.lines.length) done();
+      } else {
+        app.sound.play('wrong'); b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
+        $('#tfb', box).innerHTML = `<p class="note">順序不對喔，想想第 ${next + 1} 句是哪一句？</p>`;
+      }
+    }));
+    return;
+  }
+  box.innerHTML = `<p class="quiz-q" id="tq">${esc(t.q)}</p><div class="opts" role="group" aria-labelledby="tq">${shuffle(t.options).map((o, k) => `<button type="button" class="opt" data-opt="${o.id}"><span class="k">${'ABCD'[k]}</span><span>${esc(o.text)}</span></button>`).join('')}</div><div id="tfb" aria-live="polite"></div>`;
+  $$('.opt', box).forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.opt === t.answer) { $$('.opt', box).forEach(x => { x.disabled = true; }); b.classList.add('correct'); done(); }
+    else {
+      b.disabled = true; b.classList.add('wrong'); app.sound.play('wrong');
+      b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
+      $('#tfb', box).innerHTML = '<p class="note">再想想看，換一個答案試試！</p>';
+    }
+  }));
+}
+function discoverySolved(box, d) {
+  const isl = d.island;
+  const wasOpen = app.state.challengeOpen(isl);
+  const first = app.state.recordDiscovery(d.id);
+  app.sound.play('correct'); setTimeout(() => app.sound.play('discover'), 260);
+  if (app.world) app.world.burst(app.world.anchor(isl, d.anchor).focus.clone(), 0x9be06a, 40, { up: 3, dur: 1.8 });
+  const nowOpen = isl !== 'center' && app.state.challengeOpen(isl);
+  const nextD = (app.byId[isl].discoveries || []).find(x => !app.state.isFound(x.id));
+  const gain = first && app.state.hasAdventurer ? ` <span class="note">（+${app.content.rpgRules.discoveryExp} EXP）</span>` : '';
+  $('#tfb', box).innerHTML = `<div class="feedback ok"><strong>✅ 探索完成！</strong>${gain}<p>${esc(d.task.explain)}</p>
+    <div class="row">${nowOpen ? '<button class="btn" type="button" data-n="boss">⚔️ 島主挑戰</button>' : ''}${nextD ? `<button class="btn ${nowOpen ? 'ghost' : ''}" type="button" data-n="next">下一個探索：${esc(nextD.title)}</button>` : ''}<button class="btn ghost" type="button" data-n="back">回到島上</button></div></div>`;
+  const nb = $('[data-n="next"]', box); if (nb) nb.addEventListener('click', () => openDiscovery(nextD.id));
+  const bb = $('[data-n="boss"]', box); if (bb) bb.addEventListener('click', () => openBoss(isl));
+  $('[data-n="back"]', box).addEventListener('click', () => closeCard());
+  if (first && nowOpen && !wasOpen) setTimeout(() => toast(`🔓「${app.byId[isl].name}」的島主挑戰開放了！`, 3600), 600);
+  renderBanner(); updateLabelStates();
+  $('#tfb', box).scrollIntoView({ block: 'nearest', behavior: app.reduced ? 'auto' : 'smooth' });
+}
+function openBoss(id) {
+  const isl = app.byId[id];
+  closeBubble();
+  if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; }
+  const body = cardShell('⚔️', `${isl.name}・島主挑戰`, `${isl.npc ? isl.npc.name : ''}的島主挑戰`);
+  renderChallengeIntro(body, isl, true);
+  app.sound.play('open');
+}
+function openFinalCard() {
+  closeBubble();
+  if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; }
+  const body = cardShell('🏆', '中央島・詩兩首', '最終挑戰');
+  renderFinal(body, true);
+  app.sound.play('open');
+}
+function renderExploreList(tp, isl) {
+  const list = isl.discoveries || [];
+  const f = app.state.foundOn(isl.id);
+  tp.innerHTML = `<p>在島上找找閃閃發亮的 ✨，點一下物件就會有變化，再完成小關卡。已完成 <strong>${f.done} / ${f.total}</strong>${isl.id !== 'center' ? `，完成 ${Math.min(app.content.rpgRules.challengeNeed, f.total)} 個就能挑戰島主` : ''}。</p>
+    <ul class="disc-list">${list.map(d => `<li><span class="ic" aria-hidden="true">${d.icon}</span><div class="grow"><strong>${esc(d.title)}</strong>${app.state.isFound(d.id) ? ' <span class="done-flag">✅</span>' : ''}<br><span class="note">${esc(d.text.slice(0, 34))}…</span></div><button class="btn sm${app.state.isFound(d.id) ? ' ghost' : ''}" type="button" data-d="${d.id}">${app.state.isFound(d.id) ? '再玩' : '去探索'}</button></li>`).join('')}</ul>
+    <p class="note">探索關卡依課文內容改寫，屬自編練習。</p>`;
+  $$('[data-d]', tp).forEach(b => b.addEventListener('click', () => openDiscovery(b.dataset.d)));
+}
+function updateSpots() {
+  const w = app.world; if (!w || !w.anchors) return;
+  const box = $('#labels');
+  app.spots ||= {};
+  for (const d of Object.values(app.discById)) {
+    const a = w.anchor(d.island, d.anchor); if (!a) continue;
+    let b = app.spots[d.id];
+    if (!b) {
+      b = h(`<button type="button" class="spot" data-disc="${d.id}" aria-label="探索：${esc(d.title)}（${esc(app.byId[d.island].name)}）">✨</button>`);
+      b.addEventListener('click', () => openDiscovery(d.id));
+      box.appendChild(b); app.spots[d.id] = b;
+    }
+    const found = app.state.isFound(d.id);
+    const p = w.project(a.pos);
+    const near = w.camera.position.distanceTo(a.focus) < (w.camera.aspect < .8 ? 70 : 58);
+    const vis = p.front && near && p.x > 0 && p.x < w._w && p.y > 60 && p.y < w._h;
+    b.classList.toggle('hidden', !vis);
+    if (found !== b._found) { b._found = found; b.classList.toggle('done', found); b.textContent = found ? '✓' : '✨'; }
+    if (vis) { const sz = found ? 19 : 23; b.style.transform = `translate(${Math.round(p.x - sz)}px, ${Math.round(p.y - sz)}px)`; }
+  }
+}
+function updateNear() {
+  const w = app.world, btn = $('#near');
+  let d = null;
+  if (w && w.player && app.state.hasAdventurer && $('#card').hidden && $('#modal').hidden && $('#panel').hidden && !w.player.path.length) {
+    const a = w.nearestAnchor(); if (a) d = findDisc(a.island, a.key);
+  }
+  if ((d && d.id) === app.nearDisc) return;
+  app.nearDisc = d ? d.id : null;
+  if (!d) { btn.hidden = true; return; }
+  btn.textContent = `${window.matchMedia('(pointer: coarse)').matches ? '👆 點這裡' : '⌨️ 按 E'}：探索「${d.title}」${app.state.isFound(d.id) ? '（已完成）' : ''}`;
+  btn.hidden = false;
+}
+function stepSounds(dt) {
+  const w = app.world;
+  if (!w || !w.playerWalking || app.reduced) { app.stepAcc = 0; return; }
+  app.stepAcc = (app.stepAcc || 0) + dt;
+  if (app.stepAcc > .34) { app.stepAcc = 0; app.sound.play('step'); }
+}
+function syncSoundButton() {
+  const b = $('#btn-sound'); if (!b) return;
+  const on = app.sound.musicOn || app.sound.sfxOn;
+  b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', `音樂與音效：${on ? '開' : '關'}`);
+  b.querySelector('span').textContent = on ? '🔊' : '🔇';
+}
+// 站內確認視窗（取代瀏覽器的 confirm）
+function askConfirm(msg, okText = '確定', cancelText = '取消') {
+  return new Promise(res => {
+    const c = $('#confirm');
+    const ret = document.activeElement;
+    $('#confirm-body').innerHTML = `<p id="confirm-title" style="font-size:17px;font-weight:700">${esc(msg)}</p><div class="row"><button class="btn" type="button" data-k="ok">${esc(okText)}</button><button class="btn ghost" type="button" data-k="no">${esc(cancelText)}</button></div>`;
+    c.hidden = false;
+    const done = v => { c.hidden = true; app.confirmResolve = null; if (ret && document.contains(ret)) ret.focus({ preventScroll: true }); res(v); };
+    app.confirmResolve = done;
+    c.querySelector('[data-k="ok"]').addEventListener('click', () => done(true));
+    c.querySelector('[data-k="no"]').addEventListener('click', () => done(false));
+    c.onclick = e => { if (e.target === c) done(false); };
+    c.querySelector('[data-k="ok"]').focus();
+  });
+}
+function openRestart() {
+  const c = $('#confirm'), s = app.state;
+  const ret = document.activeElement;
+  $('#confirm-body').innerHTML = `<p id="confirm-title" style="font-size:20px;font-weight:900;color:var(--primary-strong);margin:0 0 6px">🔄 要怎麼重新玩？</p>
+    <p class="note">重新開始會清除${s.hasAdventurer ? `「${esc(s.save.name)}」的` : ''}EXP、島章、探索、學習單、背包與測驗紀錄，島上的物件也會回到原來的樣子。</p>
+    <div class="row" style="flex-direction:column;align-items:stretch">
+      ${s.hasAdventurer ? `<button class="btn" type="button" data-k="same">同一位冒險者從頭開始</button>` : ''}
+      <button class="btn alt" type="button" data-k="new">換一位新冒險者</button>
+      <button class="btn ghost" type="button" data-k="no">取消</button></div>`;
+  c.hidden = false;
+  const close = () => { c.hidden = true; app.confirmResolve = null; };
+  app.confirmResolve = () => { close(); if (ret) ret.focus({ preventScroll: true }); };
+  c.onclick = e => { if (e.target === c) app.confirmResolve(); };
+  const reset = () => {
+    closeCard(true); closeBubble(); closeModal(true);
+    if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; }
+    if (s.hasAdventurer) s.resetCurrent(); else { s.clearCourse(); s.clearBag(); }
+    if (app.world) { app.world.resetFoundState(); app.world.setViewShift(0, 0); app.world.inputEnabled = true; }
+    setFocus(null);
+  };
+  const same = c.querySelector('[data-k="same"]');
+  if (same) same.addEventListener('click', () => {
+    close(); reset();
+    const go = () => { if (app.world) app.world.setPlayer(s.save.style, 'center'); toast(`重新出發！${s.save.name}，從中央島開始探索吧。`, 3600); };
+    if (app.world && !app.reduced) playIntro(go); else { if (app.world) app.world.flyHome(); go(); }
+  });
+  c.querySelector('[data-k="new"]').addEventListener('click', () => {
+    close(); reset(); s.browseOnly();
+    if (app.world && !app.reduced) playIntro(openCreate); else { if (app.world) app.world.flyHome(); openCreate(); }
+  });
+  c.querySelector('[data-k="no"]').addEventListener('click', () => app.confirmResolve());
+  (same || c.querySelector('[data-k="new"]')).focus();
 }
 
 boot();

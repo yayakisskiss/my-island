@@ -38,13 +38,13 @@ export { G };
 // ---------- 樹 ----------
 export function tree(b, x, y, z, r, type = 'round', s = 1) {
   const rot = r() * 6.28;
-  if (type === 'round' || type === 'osmanthus') {
+  if (type === 'round' || type === 'osmanthus' || type === 'blossom') {
     const h = (1.1 + r() * .5) * s;
     b.add('solid', G.cyl6, PAL.woodDark, mat(x, y + h / 2, z, 0, rot, 0, .16 * s, h, .16 * s));
     const n = 2 + Math.floor(r() * 2);
     for (let i = 0; i < n; i++) {
       const rr = (.75 + r() * .35) * s;
-      b.add('solid', G.ico0, jitter(pick(PAL.leaf, r), .6, r), mat(x + (r() - .5) * .7 * s, y + h + rr * .55 + i * .35 * s, z + (r() - .5) * .7 * s, r(), r(), 0, rr, rr * .9, rr));
+      b.add('solid', G.ico0, jitter(type === 'blossom' ? pick(['#f7b6cf', '#f29ac0', '#fbd3e2'], r) : pick(PAL.leaf, r), .5, r), mat(x + (r() - .5) * .7 * s, y + h + rr * .55 + i * .35 * s, z + (r() - .5) * .7 * s, r(), r(), 0, rr, rr * .9, rr));
     }
     if (type === 'osmanthus') {
       for (let i = 0; i < 26; i++) {
@@ -274,7 +274,8 @@ export function windmill(b, x, y, z, rot, material) {
   }
   const blades = mergedMesh(parts, material);
   hub.add(blades);
-  return { object: hub, update(t, dt, still) { if (!still) blades.rotation.z -= dt * 1.2; } };
+  const api = { object: hub, boost: 0, update(t, dt, still) { if (!still) blades.rotation.z -= dt * 1.2 * (1 + api.boost * 6); if (api.boost > 0) api.boost = Math.max(0, api.boost - dt / 4); } };
+  return api;
 }
 export function waterwheel(b, x, y, z, rot, material) {
   const wheel = new THREE.Group();
@@ -386,7 +387,8 @@ export function lightBeam(x, y, z, target) {
   // 讓圓錐軸線指向目標
   const dir = new THREE.Vector3().subVectors(target, m.position).normalize();
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
-  return { object: m, update(t, dt, still, env) { const day = 1 - (env ? env.night : 0); m.material.opacity = (.07 + (still ? 0 : Math.sin(t * 2) * .025)) * (env ? env.duskBeam : 1) * day; m.visible = m.material.opacity > .01; } };
+  const api = { object: m, boost: 1, update(t, dt, still, env) { const day = 1 - (env ? env.night : 0); m.material.opacity = Math.min(.6, (.07 + (still ? 0 : Math.sin(t * 2) * .025)) * (env ? env.duskBeam : 1) * day * api.boost); m.visible = m.material.opacity > .01; } };
+  return api;
 }
 export function balloon(color, stripe, material) {
   const g = new THREE.Group();
@@ -463,6 +465,17 @@ export function painting() {
     ctx.fillStyle = '#b8282e'; ctx.fillRect(18, 170, 24, 24);
   }, 256, 220);
   return new THREE.MeshStandardMaterial({ map: tex, roughness: .9 });
+}
+export function scrollTexture() {
+  return textTexture((ctx, W, H) => {
+    ctx.fillStyle = '#f6ecd6'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#b8862f'; ctx.lineWidth = 6; ctx.strokeRect(8, 8, W - 16, H - 16);
+    ctx.fillStyle = '#3a2318'; ctx.font = `700 34px ${CJK_SERIF}`; ctx.textAlign = 'center';
+    ['唐', '朝', '詩', '人', '王', '維'].forEach((ch, i) => ctx.fillText(ch, W - 40 - Math.floor(i / 3) * 44, 52 + (i % 3) * 40));
+    ctx.font = `700 26px ${CJK_SERIF}`; ctx.fillStyle = '#6e4f40';
+    ['終南山', '輞川'].forEach((t, i) => t.split('').forEach((ch, j) => ctx.fillText(ch, 120 - i * 40, 50 + j * 32)));
+    ctx.fillStyle = '#b8282e'; ctx.fillRect(28, H - 52, 26, 26);
+  }, 256, 128);
 }
 export function glowSprite(color = 0xffd27a, size = 1.6) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
