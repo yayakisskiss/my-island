@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mat, jitter, col, mergedMesh, textTexture, CJK, CJK_SERIF, glowTexture } from './util.js';
 
 export const PAL = {
-  grass: ['#8fbd5c', '#7caf50', '#a2c86b', '#86b657'],
+  grass: ['#93b866', '#83a95c', '#a4c27a', '#8bb063'],
   grassDark: '#5f8f3f',
   sand: ['#f1dcae', '#ead09c', '#f6e6c2'],
   rock: ['#a39282', '#8a786a', '#726355', '#5c4e43', '#4a3f37'],

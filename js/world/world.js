@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { rng, lerp, clamp, easeInOutCubic, col, jitter, mat, StaticBatch, makeRadiusFn, ringFrustum, blobPatch, mergedMesh, glowTexture, textTexture, CJK } from './util.js';
 import * as P from './props.js';
 import { makePerson, makeAnimal, Agent, M } from './characters.js';
+import { buildInkMountains, buildMist, buildPetals, buildLanterns, tintPoetic, updatePoetic, petalColorFor } from './poetic.js';
 
 const TAU = Math.PI * 2;
 const OUTER_DIST = 36;
@@ -11,7 +12,7 @@ const OUTER_ANG = [-3 * Math.PI / 4, -Math.PI / 4, Math.PI / 4, 3 * Math.PI / 4]
 // ---------- 晝夜色票 ----------
 const NIGHT = { top: '#0b1430', hor: '#22305a', sun: '#9fb2e6', sunI: .55, hs: '#4a5f96', hg: '#1c1a2a', hI: .55, fog: '#1d2748', night: 1, seaS: '#1f6573', seaD: '#0e2747' };
 const DAWN = { top: '#7491c6', hor: '#f6b38a', sun: '#ffbe8a', sunI: 1.3, hs: '#d6c3cf', hg: '#6a5040', hI: .7, fog: '#ecc6ad', night: .25, seaS: '#62bdbb', seaD: '#2f6f95' };
-const DAY = { top: '#4a9ce0', hor: '#d6eef7', sun: '#fff3dc', sunI: 2.6, hs: '#d3eaff', hg: '#8a7a5a', hI: 1.0, fog: '#d3e9f2', night: 0, seaS: '#3fc2bf', seaD: '#2584b2' };
+const DAY = { top: '#6aa4d2', hor: '#e6efe9', sun: '#fff1d8', sunI: 2.45, hs: '#dbe8f0', hg: '#8a7a5a', hI: 1.0, fog: '#dfe9e6', night: 0, seaS: '#58bdb2', seaD: '#3482a6' };
 const DUSK = { top: '#6a6aa8', hor: '#ffa56c', sun: '#ffa060', sunI: 2.3, hs: '#ffd2b8', hg: '#7a5a48', hI: 1.0, fog: '#f5b08e', night: .2, seaS: '#6cc6cc', seaD: '#3a72a4' };
 const EVE = { top: '#18204a', hor: '#5a4170', sun: '#c79bd0', sunI: .7, hs: '#6a5f96', hg: '#251c2a', hI: .58, fog: '#3a3058', night: .85, seaS: '#2a6e7a', seaD: '#122d50' };
 const KEYS = [[0, NIGHT], [4.8, NIGHT], [6.3, DAWN], [8.5, DAY], [16.2, DAY], [18, DUSK], [19.3, EVE], [20.6, NIGHT], [24, NIGHT]];
@@ -46,6 +47,8 @@ export class World {
     this.hour = MODE_HOUR.day; this.targetHour = this.hour; this.timeMode = 'day';
     this.t = 0;
     this.follow = true;
+    this.viewMode = 'orbit';   // 'orbit' 鳥瞰 / 'fp' 第一人稱
+    this.fpYaw = 0; this.fpPitch = -.06; this.fpBob = 0;
     this.keys = new Set();
     this.inputEnabled = true;
     this.flight = null;
@@ -100,7 +103,7 @@ export class World {
     this.islands.forEach(isl => this.buildIsland(batch, isl));
     this.buildBridges(batch);
     this.buildLandmarks(batch);
-    this.buildMountains(batch);
+    this.buildMountains();
     this.staticMeshes = batch.build(this.mat, scene);
     this.buildPeople();
     this.buildAnimals();
@@ -903,6 +906,14 @@ export class World {
     void s;
   }
   focusAnchor(a, done) {
+    if (this.viewMode === 'fp' && this.player) {
+      // 第一人稱：走到旁邊後轉頭看著它
+      this.fpLookAt = (a.look ? a.focus.clone().lerp(a.look, .6) : a.focus.clone());
+      this.fpLookHold = 3;
+      if (this.reduced || !this.player.path.length) { this.snapLook(); done && done(); return; }
+      this.fpPending = { done, wait: .5 };
+      return;
+    }
     const s = this.islandById[a.island];
     if (a.look) { // 往某個方向看（例如看山後的月亮）
       const dir = a.look.clone().sub(a.focus); dir.y = 0; dir.normalize();
@@ -1063,6 +1074,7 @@ export class World {
   // 依課文情境調整光線：鹿柴＝黃昏、鳥鳴澗＝春夜
   setSceneFocus(id) {
     this.focusIsland = id;
+    this.petalColorTarget = new THREE.Color(petalColorFor(id));
     if (this.timeMode !== 'scene') return;
     const isl = id === 'center' ? this.content.center : this.content.islands.find(i => i.id === id);
     const mood = (isl && isl.mood) || 'day';
@@ -1075,13 +1087,12 @@ export class World {
     for (const a of Object.values(this.anchors)) { const d = Math.hypot(pl.pos.x - a.ground.x, pl.pos.z - a.ground.z) - a.r * .6; if (d < bd) { bd = d; best = a; } }
     return best;
   }
-  buildMountains(b) {
-    const r = rng(2024);
-    for (let i = 0; i < 46; i++) {
-      const a = i / 46 * TAU + r() * .08, d = 300 + r() * 70, h = 26 + r() * 46, w = 30 + r() * 30;
-      b.add('ground', P.G.cone6, jitter(r() > .5 ? '#7d9a86' : '#6f8a7c', .4, r), mat(Math.cos(a) * d, h / 2 - 4, Math.sin(a) * d, 0, r() * 3, 0, w, h, w * .8));
-      if (r() > .5) b.add('ground', P.G.ico0, jitter('#5f7f68', .4, r), mat(Math.cos(a + .03) * (d - 20), 2, Math.sin(a + .03) * (d - 20), 0, r(), 0, 16, 10, 14));
-    }
+  buildMountains() {
+    // 第 3 版：改成層層疊疊的水墨遠山 + 山嵐 + 落花 + 河燈
+    buildInkMountains(this);
+    buildMist(this);
+    buildPetals(this);
+    buildLanterns(this);
   }
 
   // ======================================================
@@ -1449,6 +1460,7 @@ export class World {
     this.amb.intensity = .12 + night * .1;
     this.renderer.toneMappingExposure = lerp(1.0, 1.25, night);
     this.env = { night, duskBeam: phaseOf(h) === 'dusk' ? 2.6 : 1, reduced: this.reduced };
+    tintPoetic(this, Object.assign({}, p, { hor, fog }));
   }
 
   // ======================================================
@@ -1456,7 +1468,7 @@ export class World {
   homeView() {
     const a = this.camera.aspect || 1.6;
     const k = a < .8 ? 1.75 : a < 1.2 ? 1.3 : 1;
-    return { pos: new THREE.Vector3(0, 70 * k, 101 * k), target: new THREE.Vector3(0, 0, 3) };
+    return { pos: new THREE.Vector3(0, 57 * k, 108 * k), target: new THREE.Vector3(0, 0, a < .8 ? -6 : -13) }; // 稍微抬頭，看得到遠山與天空
   }
   setCamera(v) { this.camera.position.copy(v.pos); this.controls.target.copy(v.target); this.camera.lookAt(v.target); this.controls.update(); }
   fly(points, targetEnd, dur, done) {
@@ -1467,17 +1479,20 @@ export class World {
   }
   finishFlight() {
     const f = this.flight; if (!f) return;
+    this.canvas.style.filter = '';
     this.camera.position.copy(f.curve.getPoint(1)); this.controls.target.copy(f.t1);
     this.flight = null; this.controls.enabled = true; this.controls.update();
     f.done && f.done();
   }
   flyHome(done) {
+    if (this.viewMode !== 'orbit') this.setViewMode('orbit', true);
     const v = this.homeView();
     const mid = this.camera.position.clone().lerp(v.pos, .5); mid.y += 10;
     this.fly([mid, v.pos], v.target, this.mobile ? .9 : 1.3, done);
   }
   flyToIsland(id, done) {
     const s = this.islandById[id]; if (!s) return;
+    if (this.viewMode === 'fp' && this.player) { done && done(); return; } // 第一人稱：用走的過去
     const front = id === 'center' ? Math.PI / 2 : s.toCenter;
     const dist = this.camera.aspect < .8 ? 30 : 22, h = this.camera.aspect < .8 ? 22 : 15;
     const end = new THREE.Vector3(s.x + Math.cos(front) * dist, s.top + h, s.z + Math.sin(front) * dist);
@@ -1492,6 +1507,7 @@ export class World {
     this.fly([lift, mid, end], target, this.mobile ? 1.45 : 2.1, done);
   }
   playIntro(done) {
+    if (this.viewMode !== 'orbit') this.setViewMode('orbit', true);
     const v = this.homeView();
     this.cinema = true;
     this.introClouds.forEach(c => { c.visible = true; });
@@ -1502,9 +1518,87 @@ export class World {
     this.fly(pts, v.target, dur, () => { this.endIntro(); done && done(); });
     if (this.flight) { this.flight.t0 = new THREE.Vector3(0, 0, 0); this.flight.intro = true; }
   }
-  endIntro() { this.cinema = false; this.introClouds.forEach(c => { c.visible = false; }); }
+  endIntro() { this.canvas.style.filter = ''; this.cinema = false; this.introClouds.forEach(c => { c.visible = false; }); }
   skipIntro() { if (this.flight && this.flight.intro) this.finishFlight(); }
   setFollow(v) { this.follow = v; }
+  // ======================================================
+  // 第一人稱視角
+  eyePos(out = new THREE.Vector3()) {
+    const p = this.player.pos;
+    return out.set(p.x, p.y + 1.22 + this.fpBob, p.z);
+  }
+  lookDir(out = new THREE.Vector3()) {
+    const cp = Math.cos(this.fpPitch);
+    return out.set(Math.sin(this.fpYaw) * cp, Math.sin(this.fpPitch), Math.cos(this.fpYaw) * cp);
+  }
+  snapLook() {
+    if (!this.fpLookAt || !this.player) return;
+    const e = this.eyePos(), d = this.fpLookAt.clone().sub(e);
+    this.fpYaw = Math.atan2(d.x, d.z);
+    this.fpPitch = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), -.85, .7);
+  }
+  setViewMode(mode, instant) {
+    if (mode === 'fp' && !this.player) mode = 'orbit';
+    if (mode === this.viewMode && !this.flight) return;
+    if (mode === 'fp') {
+      this.fpYaw = this.player.root.rotation.y; this.fpPitch = -.06;
+      const eye = this.eyePos(), look = eye.clone().add(this.lookDir().multiplyScalar(8));
+      const enter = () => { this.viewMode = 'fp'; this.applyViewMode(); };
+      this.viewMode = 'toFp';
+      if (instant || this.reduced) { enter(); return; }
+      const behind = eye.clone().add(this.lookDir().multiplyScalar(-7)); behind.y += 4;
+      const mid = this.camera.position.clone().lerp(behind, .55); mid.y = Math.max(mid.y, behind.y + 6);
+      this.fly([mid, behind, eye], look, this.mobile ? 1.5 : 2.0, enter);
+      return;
+    }
+    const was = this.viewMode;
+    this.viewMode = 'orbit'; this.applyViewMode();
+    if (was === 'fp' && !instant && this.player) {
+      // 從眼睛的位置往後上方拉開
+      const p = this.player.pos, back = this.lookDir(); back.y = 0; back.normalize();
+      const end = p.clone().addScaledVector(back, -16); end.y = p.y + 11;
+      this.fly([end], p.clone().setY(p.y + 1), this.mobile ? .9 : 1.2);
+    }
+  }
+  applyViewMode() {
+    const fp = this.viewMode === 'fp';
+    this.controls.enabled = !fp && !this.flight;
+    if (this.player) this.player.root.visible = !fp;
+    this.camera.near = fp ? .15 : .5;
+    this._w = 0; this.resize();
+    this.canvas.classList.toggle('fp', fp);
+    this.on.viewMode && this.on.viewMode(this.viewMode);
+  }
+  updateFirstPerson(dt) {
+    const pl = this.player, cam = this.camera, still = this.reduced;
+    // 走到物件旁邊、轉頭看好之後才打開卡片
+    if (this.fpPending && !pl.path.length) {
+      this.fpPending.wait -= dt;
+      if (this.fpPending.wait <= 0) { const d = this.fpPending.done; this.fpPending = null; d && d(); }
+    }
+    // 沿著路線走的時候，視線慢慢轉向前進方向
+    if (this.fpLookAt && this.fpLookHold > 0 && !pl.path.length) {
+      this.fpLookHold -= dt;
+      const e = this.eyePos(), d = this.fpLookAt.clone().sub(e);
+      const ty = Math.atan2(d.x, d.z), tp = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), -.85, .7);
+      let dy = ty - this.fpYaw; while (dy > Math.PI) dy -= TAU; while (dy < -Math.PI) dy += TAU;
+      const k = still ? 1 : Math.min(1, dt * 4);
+      this.fpYaw += dy * k; this.fpPitch += (tp - this.fpPitch) * k;
+      if (this.fpLookHold <= 0) this.fpLookAt = null;
+    } else if (pl.path.length && !this.dragging) {
+      let dy = pl.yaw - this.fpYaw; while (dy > Math.PI) dy -= TAU; while (dy < -Math.PI) dy += TAU;
+      this.fpYaw += dy * Math.min(1, dt * 3);
+      this.fpPitch += (-.06 - this.fpPitch) * Math.min(1, dt * 2);
+    }
+    // 走路時頭微微上下晃（減少動態時不晃）
+    const bobTarget = this.playerWalking && !still ? Math.sin(pl.walkT * .9) * .045 : 0;
+    this.fpBob += (bobTarget - this.fpBob) * Math.min(1, dt * 10);
+    const eye = this.eyePos(cam.position);
+    const dir = this.lookDir();
+    this.controls.target.copy(eye).addScaledVector(dir, 6);
+    cam.lookAt(this.controls.target);
+    pl.yaw = this.fpYaw; pl.root.rotation.y = this.fpYaw;
+  }
   // 面板打開時把畫面往旁邊推，島不會被面板蓋住
   setViewShift(x, y) { this.shiftTarget = [x || 0, y || 0]; }
   updateViewShift(dt) {
@@ -1520,7 +1614,7 @@ export class World {
   // 冒險者
   setPlayer(style, atId) {
     if (this.player) { this.scene.remove(this.player.root); this.player = null; }
-    if (style == null) return;
+    if (style == null) { if (this.viewMode !== 'orbit') { this.viewMode = 'orbit'; this.applyViewMode(); } return; }
     const looks = [
       { shirt: '#c45a2c', backpack: '#2f8f83', hat: 'cap', hatColor: '#2f8f83', pants: '#3d4f6b' },
       { shirt: '#2f8f83', robe: true, scroll: true, hat: 'bun', pants: '#2f6b5f' },
@@ -1537,6 +1631,9 @@ export class World {
     a.setPos(s.id === 'center' ? this.centerSpot() : s.entry.clone());
     a.at = s.id;
     a.faceTo(s.x, s.z);
+    if (s.id === 'center') a.yaw += Math.PI; // 在廣場時面向潟湖，一眼看到兩座島
+    a.root.rotation.y = a.yaw;
+    if (this.viewMode === 'fp' || this.viewMode === 'toFp') { this.fpYaw = a.yaw; a.root.visible = this.viewMode !== 'fp'; }
   }
   centerSpot() { const C = this.islandById.center; return C.ring[this.ringIndexAt(C, Math.PI / 2)].clone(); }
   playerRouteTo(id) {
@@ -1596,6 +1693,10 @@ export class World {
     }
     return !!this.onBridge(x, z);
   }
+  clearOf(x, z, m) {
+    const id = this.whereIs({ x, z }); if (!id) return true;
+    return !this.islandById[id].obstacles.some(([ox, oz, or]) => Math.hypot(x - ox, z - oz) < or + m);
+  }
   onBridge(x, z) {
     for (const br of this.bridges) {
       const ax = br.p1.x - br.p0.x, az = br.p1.z - br.p0.z, L2 = ax * ax + az * az;
@@ -1630,21 +1731,34 @@ export class World {
   updatePlayerKeys(dt) {
     const a = this.player; if (!a || !this.inputEnabled || !this.keys.size) return;
     let fx = 0, fz = 0;
+    const fp = this.viewMode === 'fp';
     if (this.keys.has('up')) fz -= 1; if (this.keys.has('down')) fz += 1;
     if (this.keys.has('left')) fx -= 1; if (this.keys.has('right')) fx += 1;
+    if (fp) {
+      // 第一人稱：← → 轉頭，A / D 側走
+      const turn = (this.keys.has('turnL') ? 1 : 0) - (this.keys.has('turnR') ? 1 : 0);
+      if (turn) { this.fpYaw += turn * dt * 2.1; this.fpLookAt = null; }
+    } else {
+      if (this.keys.has('turnL')) fx -= 1; if (this.keys.has('turnR')) fx += 1;
+    }
     if (!fx && !fz) return;
-    a.path = [];
+    a.path = []; a.onDone = null; this.fpLookAt = null;
     const cam = this.camera;
-    const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+    const fwd = new THREE.Vector3();
+    if (fp) fwd.set(Math.sin(this.fpYaw), 0, Math.cos(this.fpYaw));
+    else { cam.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); }
     const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
-    const mv = fwd.multiplyScalar(-fz).add(right.multiplyScalar(fx)).normalize().multiplyScalar(dt * 5.5);
+    const mv = fwd.multiplyScalar(-fz).add(right.multiplyScalar(fx)).normalize().multiplyScalar(dt * (fp ? 4.6 : 5.5));
     if (this.reduced) mv.multiplyScalar(1);
     const nx = a.pos.x + mv.x, nz = a.pos.z + mv.z;
-    if (this.walkable(nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
-    else if (this.walkable(nx, a.pos.z)) a.pos.x = nx;
-    else if (this.walkable(a.pos.x, nz)) a.pos.z = nz;
+    // 第一人稱多留一點距離，鏡頭才不會鑽進樹葉或牆裡
+    const stuck = fp && !this.clearOf(a.pos.x, a.pos.z, .7);
+    const ok = fp && !stuck ? (x, z) => this.walkable(x, z) && this.clearOf(x, z, .7) : (x, z) => this.walkable(x, z);
+    if (ok(nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
+    else if (ok(nx, a.pos.z)) a.pos.x = nx;
+    else if (ok(a.pos.x, nz)) a.pos.z = nz;
     a.pos.y = this.heightAt(a.pos.x, a.pos.z);
-    a.yaw = Math.atan2(mv.x, mv.z);
+    if (!fp) a.yaw = Math.atan2(mv.x, mv.z);
     a.keyWalk = .15;
     this.checkPlayerIsland();
   }
@@ -1655,8 +1769,25 @@ export class World {
     const el = this.canvas;
     this.raycaster = new THREE.Raycaster();
     let down = null;
-    el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType }; if (this.cinema) this.on.skip && this.on.skip(); });
+    el.addEventListener('pointerdown', e => {
+      down = { x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType, lx: e.clientX, ly: e.clientY };
+      if (this.cinema) this.on.skip && this.on.skip();
+    });
+    // 第一人稱：在畫面上拖曳就能轉頭看四周
+    el.addEventListener('pointermove', e => {
+      if (!down || this.viewMode !== 'fp' || !this.inputEnabled || this.flight) return;
+      const dx = e.clientX - down.lx, dy = e.clientY - down.ly;
+      down.lx = e.clientX; down.ly = e.clientY;
+      if (!this.dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) return;
+      if (!this.dragging) { this.dragging = true; try { el.setPointerCapture(e.pointerId); } catch (er) {} }
+      const k = (down.type === 'touch' ? .0062 : .0042) * (this.camera.fov / 70);
+      this.fpYaw -= dx * k; this.fpPitch = clamp(this.fpPitch - dy * k, -.85, .7);
+      this.fpLookAt = null;
+    });
+    const endDrag = () => { this.dragging = false; };
+    el.addEventListener('pointercancel', () => { down = null; endDrag(); });
     el.addEventListener('pointerup', e => {
+      endDrag();
       if (!down) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
       if (moved < 8 && performance.now() - down.t < 700 && !this.cinema) this.handleTap(e.clientX, e.clientY, down.type);
@@ -1712,7 +1843,7 @@ export class World {
     this._w = w; this._h = h;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.fov = w / h < .8 ? 52 : 42;
+    this.camera.fov = this.viewMode === 'fp' ? (w / h < .8 ? 78 : 66) : (w / h < .8 ? 52 : 42);
     this.camera.updateProjectionMatrix();
   }
   project(v, dy = 0) {
@@ -1736,6 +1867,7 @@ export class World {
     if (!still) this.seaUniforms.uTime.value = t;
     for (const a of this.animated) a.update(t, dt, still, env);
     this.updateFx(dt, t, still);
+    updatePoetic(this, dt, t, still);
     // 地面的浪花脈動
     this.foams.forEach((f, i) => { f.material.opacity = still ? .5 : .42 + Math.sin(t * 1.6 + i) * .18; });
     // 居民
@@ -1857,6 +1989,8 @@ export class World {
       this.camera.lookAt(this.controls.target);
       if (f.intro) this.canvas.style.filter = k < .25 ? `blur(${(1 - k / .25) * 3}px)` : '';
       if (k >= 1) { this.canvas.style.filter = ''; this.finishFlight(); }
+    } else if (this.viewMode === 'fp' && this.player) {
+      this.updateFirstPerson(dt);
     } else {
       if (this.follow && this.player && !this.userControlling && (this.playerWalking || this.followSnap)) {
         const goal = this.player.pos.clone(); goal.y += 1;

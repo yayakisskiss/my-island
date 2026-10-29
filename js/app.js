@@ -32,6 +32,7 @@ async function boot() {
   app.state = new GameState(content);
   app.islandList = [{ ...content.center, id: 'center', order: 0 }, ...content.islands];
   app.byId = Object.fromEntries(app.islandList.map(i => [i.id, i]));
+  if (!Settings.get('v3')) { Settings.set('music', true); Settings.set('sfx', true); if (!(Settings.get('volume') >= .5)) Settings.set('volume', .9); Settings.set('v3', true); }
   app.sound = new Sound({ music: Settings.get('music'), sfx: Settings.get('sfx'), volume: Settings.get('volume') });
   app.discById = {};
   app.islandList.forEach(isl => (isl.discoveries || []).forEach(d => { app.discById[d.id] = { ...d, island: isl.id }; }));
@@ -77,6 +78,8 @@ async function boot() {
   setTimeMode(Settings.get('timeMode') || 'scene', false);
   if (app.world) app.world.setFoundState(app.state.foundList());
   syncSoundButton();
+  app.sound.onState = () => { syncSoundButton(); };
+  setInterval(syncSoundButton, 1000);
   buildLabels();
   $('#loading').classList.add('done');
   setTimeout(() => $('#loading').remove(), 600);
@@ -96,6 +99,7 @@ function afterIntro() {
   if (s.hasAdventurer) {
     app.world.setPlayer(s.save.style, s.save.at || 'center');
     toast(`歡迎回來，${s.save.name}！`);
+    enterPreferredView();
   } else if (!Settings.get('browseChosen')) {
     openCreate();
   }
@@ -105,7 +109,11 @@ function afterIntro() {
 // 3D 世界的事件
 function wireWorld() {
   const w = app.world;
-  w.on.frame = dt => { updateLabels(); updateBubble(); updateShells(); updateSpots(); updateNear(); stepSounds(dt); };
+  w.on.frame = dt => {
+    updateLabels(); updateBubble(); updateShells(); updateSpots(); updateNear(); stepSounds(dt);
+    const nightish = !!(w.env && w.env.night > .55);
+    if (nightish !== app.nightish) { app.nightish = nightish; document.body.classList.toggle('nightish', nightish); }
+  };
   w.on.tapAnchor = (island, key) => { const d = findDisc(island, key); if (d) openDiscovery(d.id); };
   w.on.skip = () => skipIntro();
   w.on.tapAgent = agent => openBubble(agent);
@@ -121,10 +129,13 @@ function wireWorld() {
   w.on.tapEmpty = () => closeBubble();
   w.on.playerEnter = id => {
     app.sound.play('tick');
+    // 第一人稱走進另一座島：換成那座島的情境、聲音與題詩
+    if (w.viewMode === 'fp' && (id === 'center' ? null : id) !== app.focus) setFocus(id === 'center' ? null : id);
     const gained = app.state.visit(id);
     if (gained) toast(`第一次登上「${app.byId[id].name}」 +${app.content.rpgRules.firstVisit} EXP`);
     renderHUD();
   };
+  w.on.viewMode = () => syncViewButton();
   w.on.autoLow = () => { toast('畫面有點卡，已自動切換成低畫質。'); };
   setInterval(updateClock, 500);
   updateClock();
@@ -137,6 +148,7 @@ function playIntro(done) {
   app.introDone = () => {
     document.body.classList.remove('cinema');
     intro.hidden = true;
+    syncSoundButton();
     app.introDone = null;
     done && done();
   };
@@ -222,7 +234,8 @@ function updateLabels() {
   for (const l of app.labels) {
     const isl = w.islandById[l.id];
     const p = w.project(isl.labelPos);
-    const vis = p.front && p.x > -60 && p.x < w._w + 60 && p.y > 0 && p.y < w._h + 40;
+    const tooClose = w.viewMode === 'fp' && w.camera.position.distanceTo(isl.labelPos) < 15;
+    const vis = p.front && !tooClose && p.x > -60 && p.x < w._w + 60 && p.y > 0 && p.y < w._h + 40;
     l.el.classList.toggle('hidden', !vis);
     if (!vis) continue;
     const r = { id: l.id, x: p.x, y: p.y, w: l.el.offsetWidth || 120, h: l.el.offsetHeight || 44, el: l.el };
@@ -266,7 +279,14 @@ function pickShell(i) {
 
 // ============================================================
 // HUD
+// 手機版：島橫幅與提示要放在 HUD 上方，HUD 高度會變，所以量一下
+function measureHUD() {
+  const hud = $('#hud'); if (!hud) return;
+  document.documentElement.style.setProperty('--hud-h', (hud.offsetHeight || 58) + 'px');
+}
+window.addEventListener('resize', () => requestAnimationFrame(measureHUD));
 function renderHUD() {
+  requestAnimationFrame(measureHUD);
   const s = app.state, hud = $('#hud');
   const bag = s.bag(); const count = Object.values(bag).reduce((a, b) => a + b, 0);
   if (!s.hasAdventurer) {
@@ -292,6 +312,8 @@ function onStateEvent(type, d) {
     const s = app.state.save;
     app.world.setPlayer(s ? s.style : null, s ? (s.at || 'center') : 'center');
     app.world.resetFoundState(); app.world.setFoundState(app.state.foundList());
+    if (s && !app.world.cinema) enterPreferredView();
+    syncViewButton();
   }
   if (type === 'change' || type === 'profile') renderBanner();
 }
@@ -328,11 +350,29 @@ function openIsland(id, opts = {}) {
   });
 }
 function setFocus(id) {
+  const changed = app.focus !== id;
   app.focus = id;
+  if (changed && app.world) showInscription(id || 'center');
   if (app.world) app.world.setSceneFocus(id || 'center');
   const isl = id ? app.byId[id] : null;
   app.sound.setAmbience(id ? AMBIENCE[id] || 'sea' : 'sea', isl && Settings.get('timeMode') === 'scene' ? (isl.mood || 'day') : undefined);
   renderBanner();
+}
+// 登島時，在畫面右上角用毛筆字直書題上詩句
+function showInscription(id) {
+  const el = $('#poem'); if (!el || !app.world || app.world.cinema) return;
+  const isl = app.byId[id]; if (!isl) return;
+  let title = isl.name, lines = [], seal = '詩畫';
+  const poem = (isl.sections || []).find(s => s.type === 'poem');
+  if (poem) { lines = poem.lines.map(l => l.replace(/[，。、！？]/g, '')); seal = '王維'; }
+  else if (isl.inscription) { title = isl.inscription.title; lines = isl.inscription.lines; seal = isl.inscription.seal; }
+  clearTimeout(app.poemT1); clearTimeout(app.poemT2);
+  el.classList.remove('out');
+  const cols = [`<span class="col ttl">${esc(title)}</span>`, ...lines.map((l, i) => `<span class="col" style="animation-delay:${(.5 + i * .55).toFixed(2)}s">${esc(l)}</span>`)];
+  el.innerHTML = cols.join('') + `<span class="seal" style="animation-delay:${(.7 + lines.length * .55).toFixed(2)}s">${esc(seal)}</span>`;
+  el.hidden = false;
+  app.poemT1 = setTimeout(() => el.classList.add('out'), 7500 + lines.length * 500);
+  app.poemT2 = setTimeout(() => { el.hidden = true; el.classList.remove('out'); }, 9000 + lines.length * 500);
 }
 function renderBanner() {
   const b = $('#banner'), id = app.focus;
@@ -1095,28 +1135,45 @@ function bindUI() {
     closeBubble(); closeModal(true);
     if (!$('#panel').hidden) { $('#panel').hidden = true; app.panelId = null; if (app.world) { app.world.inputEnabled = true; app.world.setViewShift(0, 0); } }
     closeCard(true);
-    if (app.world) { app.world.setFollow(false); $('#btn-follow').setAttribute('aria-pressed', 'false'); Settings.set('follow', false); app.world.flyHome(); setFocus(null); }
+    if (app.world) { app.world.setFollow(false); Settings.set('follow', false); app.world.flyHome(); setFocus(null); syncViewButton(); }
   });
   $('#btn-sound').addEventListener('click', () => {
     app.sound.unlock();
     const on = !(app.sound.musicOn || app.sound.sfxOn);
     app.sound.setMusic(on); app.sound.setSfx(on); Settings.set('music', on); Settings.set('sfx', on);
-    syncSoundButton(); toast(on ? '🔊 音樂與音效已開啟' : '🔇 音樂與音效已關閉');
+    if (on) setTimeout(() => app.sound.play('test'), 120);
+    syncSoundButton(); toast(on ? '🔊 音樂與音效已開啟（請確認裝置音量）' : '🔇 音樂與音效已關閉');
   });
   $('#btn-restart').addEventListener('click', openRestart);
-  $('#near').addEventListener('click', () => { if (app.nearDisc) openDiscovery(app.nearDisc); });
+  $('#near').addEventListener('click', () => { if (app.nearDisc) openDiscovery(app.nearDisc); else if (app.nearAgent) openBubble(app.nearAgent); });
   // 第一次點擊或按鍵後才開始播放聲音（瀏覽器規定）
-  const unlock = () => { app.sound.unlock(); app.sound.setAmbience(app.focus ? AMBIENCE[app.focus] || 'sea' : 'sea'); };
-  document.addEventListener('pointerdown', unlock, { once: true, capture: true });
-  document.addEventListener('keydown', unlock, { once: true, capture: true });
+  // 每次操作都試著喚醒聲音，直到真的開始播放為止（手機與 Safari 需要）
+  const unlock = () => {
+    if (app.sound.running && app.sound.silentEl && !app.sound.silentEl.paused) return;
+    const first = !app.sound.ctx;
+    app.sound.unlock();
+    if (first) app.sound.setAmbience(app.focus ? AMBIENCE[app.focus] || 'sea' : 'sea');
+    setTimeout(syncSoundButton, 300);
+  };
+  ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlock, { capture: true, passive: true }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && app.sound.ctx) app.sound.unlock(); });
+  $('#sound-chip').addEventListener('click', () => {
+    app.sound.unlock();
+    if (!(app.sound.musicOn || app.sound.sfxOn)) { app.sound.setMusic(true); app.sound.setSfx(true); Settings.set('music', true); Settings.set('sfx', true); }
+    setTimeout(() => { app.sound.play('test'); syncSoundButton(); }, 150);
+  });
   document.addEventListener('click', e => { const b = e.target.closest('.btn, .tool, .opt, .tab, .island-label'); if (b && !b.disabled) app.sound.play('tick'); }, true);
-  const fol = $('#btn-follow');
-  fol.setAttribute('aria-pressed', String(Settings.get('follow') !== false));
-  fol.addEventListener('click', () => {
-    const v = fol.getAttribute('aria-pressed') !== 'true';
-    fol.setAttribute('aria-pressed', String(v)); Settings.set('follow', v);
-    if (app.world) { app.world.setFollow(v); if (v && app.world.player) { app.world.followSnap = true; setTimeout(() => { app.world.followSnap = false; }, 1500); } }
-    toast(v ? '鏡頭跟著冒險者' : '鏡頭不跟隨');
+  $('#btn-view').addEventListener('click', () => {
+    const w = app.world; if (!w) { toast('這台裝置沒有 3D 畫面，請用文字清單閱讀。'); return; }
+    if (!w.player || !app.state.hasAdventurer) { toast('先建立冒險者，就能用自己的眼睛走進島上。', 3600); openCreate(); return; }
+    const fp = w.viewMode === 'orbit';
+    Settings.set('view', fp ? 'fp' : 'orbit');
+    closeBubble(true);
+    if (!fp) { Settings.set('follow', true); w.setFollow(true); }
+    w.setViewMode(fp ? 'fp' : 'orbit');
+    if (fp) fpTip(true);
+    toast(fp ? '👁️ 第一人稱：用冒險者的眼睛看小島' : '🎥 鳥瞰：從空中看冒險者', 2600);
+    syncViewButton();
   });
   $('#btn-passport').addEventListener('click', openPassport);
   $('#btn-settings').addEventListener('click', openSettings);
@@ -1134,7 +1191,7 @@ function bindUI() {
   });
   $('#intro').addEventListener('click', skipIntro);
 
-  const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+  const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'turnL', KeyA: 'left', ArrowRight: 'turnR', KeyD: 'right', KeyQ: 'turnL' };
   document.addEventListener('keydown', e => {
     if (app.introDone) { skipIntro(); e.preventDefault(); return; }
     if (e.key === 'Escape') {
@@ -1150,13 +1207,17 @@ function bindUI() {
       const f = $$('#modal button, #modal input, #modal textarea, #modal [tabindex="0"], #modal summary, #modal a[href]').filter(x => !x.disabled && x.offsetParent !== null);
       if (f.length) { const first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); } else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); } }
     }
-    if (e.code === 'KeyE' && app.nearDisc && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && $('#modal').hidden && $('#card').hidden) { openDiscovery(app.nearDisc); e.preventDefault(); return; }
+    if (e.code === 'KeyE' && (app.nearDisc || app.nearAgent) && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && $('#modal').hidden && $('#card').hidden) {
+      if (app.nearDisc) openDiscovery(app.nearDisc); else if (!app.bubbleAgent) openBubble(app.nearAgent);
+      e.preventDefault(); return;
+    }
     const k = KEYMAP[e.code];
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const focusOnUI = document.activeElement && document.activeElement !== document.body && document.activeElement.id !== 'scene' && /BUTTON/.test(document.activeElement.tagName) && e.code.startsWith('Arrow');
     if (k && app.world && app.world.player && !typing && !focusOnUI && $('#modal').hidden && $('#panel').hidden && $('#card').hidden) {
       app.world.keys.add(k); e.preventDefault();
       if (Settings.get('follow') !== false) app.world.setFollow(true);
+      app.world.fpLookAt = null;
     }
   });
   document.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k && app.world) app.world.keys.delete(k); });
@@ -1321,6 +1382,25 @@ function updateNear() {
   if (w && w.player && app.state.hasAdventurer && $('#card').hidden && $('#modal').hidden && $('#panel').hidden && !w.player.path.length) {
     const a = w.nearestAnchor(); if (a) d = findDisc(a.island, a.key);
   }
+  let ag = null;
+  if (!d && w && w.player && w.viewMode === 'fp' && $('#card').hidden && $('#modal').hidden && !app.bubbleAgent && !w.player.path.length) {
+    let bd = 3.2;
+    for (const a of [...w.agents, ...w.animals]) {
+      if (!a.root.visible || a.hidden || a.swim || a.fly) continue;
+      const dd = Math.hypot(a.pos.x - w.player.pos.x, a.pos.z - w.player.pos.z);
+      if (dd < bd) { bd = dd; ag = a; }
+    }
+  }
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  if (!d && ag !== app.nearAgent) {
+    app.nearAgent = ag; app.nearDisc = null;
+    if (!ag) { btn.hidden = true; return; }
+    const nm = ag.type === 'animal' ? (ANIMAL_NAME[ag.info && ag.info.animal] || '小動物') : ((ag.info && ag.info.name) || '島民');
+    btn.textContent = `${coarse ? '👆 點這裡' : '⌨️ 按 E'}：和「${nm}」聊聊`;
+    btn.hidden = false; return;
+  }
+  if (!d && ag) return;
+  app.nearAgent = null;
   if ((d && d.id) === app.nearDisc) return;
   app.nearDisc = d ? d.id : null;
   if (!d) { btn.hidden = true; return; }
@@ -1339,6 +1419,36 @@ function syncSoundButton() {
   b.setAttribute('aria-pressed', String(on));
   b.setAttribute('aria-label', `音樂與音效：${on ? '開' : '關'}`);
   b.querySelector('span').textContent = on ? '🔊' : '🔇';
+  b.querySelector('b').textContent = on ? '聲音開' : '聲音關';
+  // 還沒真正出聲時，顯示「開啟音樂」提示
+  const chip = $('#sound-chip');
+  if (chip) {
+    const waiting = on && !app.sound.running && !document.body.classList.contains('cinema');
+    chip.hidden = !waiting;
+  }
+}
+function syncViewButton() {
+  const b = $('#btn-view'); if (!b) return;
+  const w = app.world;
+  const fp = !!(w && (w.viewMode === 'fp' || w.viewMode === 'toFp'));
+  b.setAttribute('aria-pressed', String(fp));
+  b.setAttribute('aria-label', fp ? '視角：第一人稱（按一下改成鳥瞰）' : '視角：鳥瞰（按一下改成第一人稱）');
+  b.querySelector('span').textContent = fp ? '👁️' : '🎥';
+  b.querySelector('b').textContent = fp ? '第一人稱' : '鳥瞰';
+  document.body.classList.toggle('fp-mode', fp);
+}
+function enterPreferredView() {
+  const w = app.world; if (!w || !w.player) return;
+  if (Settings.get('view') !== 'orbit') { w.setViewMode('fp'); fpTip(); }
+  syncViewButton();
+}
+function fpTip(force) {
+  if (Settings.get('fpTip') && !force) return;
+  Settings.set('fpTip', true);
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  setTimeout(() => toast(coarse
+    ? '👁️ 第一人稱：手指在畫面上拖曳可以轉頭看四周，點地面就會走過去，點發光的 ✨ 物件就能探索。'
+    : '👁️ 第一人稱：W/↑ 前進、S/↓ 後退、←/→ 轉頭、A/D 側走；用滑鼠拖曳看四周，點地面走過去，靠近物件按 E。', 6500), 900);
 }
 // 站內確認視窗（取代瀏覽器的 confirm）
 function askConfirm(msg, okText = '確定', cancelText = '取消') {
@@ -1378,7 +1488,7 @@ function openRestart() {
   const same = c.querySelector('[data-k="same"]');
   if (same) same.addEventListener('click', () => {
     close(); reset();
-    const go = () => { if (app.world) app.world.setPlayer(s.save.style, 'center'); toast(`重新出發！${s.save.name}，從中央島開始探索吧。`, 3600); };
+    const go = () => { if (app.world) { app.world.setPlayer(s.save.style, 'center'); enterPreferredView(); } toast(`重新出發！${s.save.name}，從中央島開始探索吧。`, 3600); };
     if (app.world && !app.reduced) playIntro(go); else { if (app.world) app.world.flyHome(); go(); }
   });
   c.querySelector('[data-k="new"]').addEventListener('click', () => {

@@ -9,25 +9,31 @@ export class Sound {
   constructor(prefs = {}) {
     this.musicOn = prefs.music !== false;
     this.sfxOn = prefs.sfx !== false;
-    this.volume = prefs.volume ?? .7;
+    this.volume = prefs.volume ?? .9;
     this.ctx = null;
     this.mood = 'day';
     this.amb = 'sea';
     this.ready = false;
   }
-  // 瀏覽器規定要使用者先點一下才能出聲
+  get running() { return !!this.ctx && this.ctx.state === 'running'; }
+  // 瀏覽器規定要使用者先點一下才能出聲；iPhone 靜音模式也要能聽到
   unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); return; }
+    this.unlockIOS();
+    if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume().then(() => this.onState && this.onState()).catch(() => {}); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     try {
-      const ctx = this.ctx = new AC();
+      const ctx = this.ctx = new AC({ latencyHint: 'playback' });
+      ctx.onstatechange = () => this.onState && this.onState();
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+      // 立刻播一個無聲的音，讓 Safari 真的解鎖
+      const b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource(); src.buffer = b; src.connect(ctx.destination); src.start(0);
       this.master = ctx.createGain(); this.master.gain.value = this.volume;
       const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
       this.master.connect(comp).connect(ctx.destination);
-      this.musicBus = ctx.createGain(); this.musicBus.gain.value = this.musicOn ? .55 : 0; this.musicBus.connect(this.master);
-      this.sfxBus = ctx.createGain(); this.sfxBus.gain.value = this.sfxOn ? .9 : 0; this.sfxBus.connect(this.master);
-      this.ambBus = ctx.createGain(); this.ambBus.gain.value = this.sfxOn ? .5 : 0; this.ambBus.connect(this.master);
+      this.musicBus = ctx.createGain(); this.musicBus.gain.value = this.musicOn ? .9 : 0; this.musicBus.connect(this.master);
+      this.sfxBus = ctx.createGain(); this.sfxBus.gain.value = this.sfxOn ? 1.1 : 0; this.sfxBus.connect(this.master);
+      this.ambBus = ctx.createGain(); this.ambBus.gain.value = this.sfxOn ? .7 : 0; this.ambBus.connect(this.master);
       // 溫暖的殘響（用雜訊做的短 IR）
       this.verb = ctx.createConvolver(); this.verb.buffer = this.makeIR(2.4);
       this.verbGain = ctx.createGain(); this.verbGain.gain.value = .35;
@@ -37,6 +43,24 @@ export class Sound {
       this.startMusic();
       this.ready = true;
     } catch (e) { this.ctx = null; }
+  }
+  unlockIOS() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (this.silentEl) { if (this.silentEl.paused) this.silentEl.play().catch(() => {}); return; }
+    // 播放一段無聲的 <audio>，iPhone 在靜音模式下也會讓網頁聲音出來
+    try {
+      const rate = 8000, n = rate / 2, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+      const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+      for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+      let bin = ''; new Uint8Array(buf).forEach(c => { bin += String.fromCharCode(c); });
+      const a = document.createElement('audio');
+      a.setAttribute('playsinline', ''); a.setAttribute('x-webkit-airplay', 'deny'); a.loop = true; a.preload = 'auto';
+      a.src = 'data:audio/wav;base64,' + btoa(bin);
+      a.play().catch(() => {});
+      this.silentEl = a;
+    } catch (e) {}
   }
   makeNoise() {
     const ctx = this.ctx, len = ctx.sampleRate * 2, b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
@@ -48,8 +72,8 @@ export class Sound {
     for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
     return b;
   }
-  setMusic(on) { this.musicOn = on; if (this.ctx) this.ramp(this.musicBus.gain, on ? .55 : 0, .8); }
-  setSfx(on) { this.sfxOn = on; if (this.ctx) { this.ramp(this.sfxBus.gain, on ? .9 : 0, .3); this.ramp(this.ambBus.gain, on ? .5 : 0, .8); } }
+  setMusic(on) { this.musicOn = on; if (this.ctx) this.ramp(this.musicBus.gain, on ? .9 : 0, .8); }
+  setSfx(on) { this.sfxOn = on; if (this.ctx) { this.ramp(this.sfxBus.gain, on ? 1.1 : 0, .3); this.ramp(this.ambBus.gain, on ? .7 : 0, .8); } }
   setVolume(v) { this.volume = v; if (this.ctx) this.ramp(this.master.gain, v, .2); }
   setMood(m) { this.mood = m; }
   ramp(param, v, t) { const now = this.ctx.currentTime; param.cancelScheduledValues(now); param.setValueAtTime(param.value, now); param.linearRampToValueAtTime(v, now + t); }
@@ -102,26 +126,29 @@ export class Sound {
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; f.connect(pad);
     [[73.42, 0], [110, 3], [146.83, -4]].forEach(([fr, det]) => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fr; o.detune.value = det; o.connect(f); o.start(); });
     const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = .07; lg.gain.value = .025; lfo.connect(lg).connect(pad.gain); lfo.start();
-    pad.gain.setValueAtTime(0, ctx.currentTime); pad.gain.linearRampToValueAtTime(.05, ctx.currentTime + 4);
+    pad.gain.setValueAtTime(0, ctx.currentTime); pad.gain.linearRampToValueAtTime(.09, ctx.currentTime + 3);
     this.pad = pad;
     // 撥弦旋律
-    this.nextBeat = ctx.currentTime + 1;
+    this.nextBeat = ctx.currentTime + .3;
+    // 開頭先來一段上行的琴聲，讓人知道音樂開始了
+    [0, 2, 4, 5, 7].forEach((d, i) => this.pluck(note(d + 3), ctx.currentTime + .15 + i * .22, 2, .22, this.musicBus, 2600));
     this.deg = 5; this.beat = 0;
     this.timer = setInterval(() => this.schedule(), 120);
   }
   schedule() {
     const ctx = this.ctx; if (!ctx || ctx.state !== 'running') return;
+    if (this.nextBeat < ctx.currentTime - 1) this.nextBeat = ctx.currentTime + .1; // 分頁暫停回來時不要一次補一堆音
     const night = this.mood === 'night', dusk = this.mood === 'dusk';
     const beatLen = night ? .95 : dusk ? .85 : .72;
     while (this.nextBeat < ctx.currentTime + .4) {
       const t = this.nextBeat, b = this.beat++;
-      if (b % 16 === 0) this.pluck(note(0, -1), t, 3.2, .16, this.musicBus, 900);                // 每小節一個低音
-      if (b % 16 === 8) this.pluck(note(3, -1), t, 3, .12, this.musicBus, 900);
+      if (b % 16 === 0) this.pluck(note(0, -1), t, 3.2, .26, this.musicBus, 1000);                // 每小節一個低音
+      if (b % 16 === 8) this.pluck(note(3, -1), t, 3, .2, this.musicBus, 1000);
       const play = Math.random() < (night ? .42 : .6);
       if (play) {
         this.deg += [-2, -1, -1, 1, 1, 2, 0][Math.floor(Math.random() * 7)];
         this.deg = Math.max(night ? 2 : 3, Math.min(night ? 8 : 11, this.deg));
-        const v = .1 + Math.random() * .06;
+        const v = .18 + Math.random() * .08;
         this.pluck(note(this.deg), t + (Math.random() - .5) * .03, night ? 2.4 : 1.8, v, this.musicBus, night ? 1600 : 2600);
         if (Math.random() < .18) this.pluck(note(this.deg + 2), t + beatLen / 2, 1.4, v * .6, this.musicBus, 2200); // 小裝飾音
       }
@@ -177,17 +204,18 @@ export class Sound {
     const t = this.ctx.currentTime + .01;
     const P = (d, o = 0) => note(d, o);
     switch (name) {
-      case 'tick': this.tone(1500, t, .04, .05, 'sine'); break;
+      case 'tick': this.tone(1500, t, .05, .08, 'sine'); break;
       case 'open': this.pluck(P(5), t, .8, .12, this.sfxBus); this.pluck(P(7), t + .07, .9, .1, this.sfxBus); break;
       case 'close': this.pluck(P(7), t, .6, .08, this.sfxBus); this.pluck(P(5), t + .06, .7, .08, this.sfxBus); break;
-      case 'correct': this.bell(P(7), t, 1, .14); this.bell(P(10), t + .11, 1.3, .16); break;
+      case 'correct': this.bell(P(7), t, 1, .22); this.bell(P(10), t + .11, 1.3, .26); break;
       case 'wrong': this.tone(220, t, .28, .1, 'triangle', this.sfxBus, 170); break;
-      case 'discover': [5, 7, 8, 10, 12].forEach((d, i) => this.bell(P(d), t + i * .07, 1, .08)); this.noiseBurst(t, .6, .03, 'highpass', 6000, .5); break;
+      case 'test': [0, 2, 4, 7].forEach((d, i) => this.bell(P(d + 5), t + i * .12, 1.2, .2)); break;
+      case 'discover': [5, 7, 8, 10, 12].forEach((d, i) => this.bell(P(d), t + i * .07, 1, .14)); this.noiseBurst(t, .6, .03, 'highpass', 6000, .5); break;
       case 'stamp': this.tone(120, t, .25, .3, 'sine', this.sfxBus, 55); [0, 2, 4].forEach((d, i) => this.pluck(P(d + 5), t + .12 + i * .05, 1.6, .12, this.sfxBus)); break;
       case 'levelup': [0, 2, 3, 5, 7, 10].forEach((d, i) => this.bell(P(d + 5), t + i * .09, 1.1, .1)); break;
       case 'shell': this.tone(500, t, .18, .12, 'sine', this.sfxBus, 1100); this.tone(900, t + .08, .2, .08, 'sine', this.sfxBus, 1600); break;
       case 'trade': this.bell(1320, t, .5, .1); this.bell(1760, t + .1, .6, .1); break;
-      case 'step': this.noiseBurst(t, .07, .035, 'lowpass', 700, .7); break;
+      case 'step': this.noiseBurst(t, .07, .06, 'lowpass', 700, .7); break;
       case 'chirp': for (let i = 0; i < 4; i++) this.chirp(t + i * .35 + Math.random() * .2, .07); break;
       case 'murmur': // 遠處的人聲：一段一段像說話的濾波雜訊
         for (let i = 0; i < 9; i++) { const st = t + i * .23 + Math.random() * .1; this.noiseBurst(st, .2, .06, 'bandpass', 500 + Math.random() * 600, 4, this.sfxBus, 350 + Math.random() * 500); }
