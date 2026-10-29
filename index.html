@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-Hant-TW" data-theme="sunset">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>詩兩首｜學習古詩</title>
+<meta name="description" content="五年級國語第七課〈美景閒情──詩兩首〉3D 學習群島：讀〈鹿柴〉〈鳥鳴澗〉、做學習單與隨堂挑戰。">
+<meta name="theme-color" content="#c45a2c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script>
+  // 先套用上次選的底色，避免閃爍
+  try {
+    var s = JSON.parse(localStorage.getItem('shi2.settings') || '{}');
+    if (s.theme) document.documentElement.setAttribute('data-theme', s.theme);
+  } catch (e) {}
+</script>
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.min.js", "three/addons/": "./js/vendor/addons/" } }
+</script>
+</head>
+<body>
+<a class="skip" href="#list-open" id="skip-link">跳到文字清單</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="weave" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#b8282e"/>
+      <path d="M4 0 L8 4 L4 8 L0 4Z" fill="#f7efe4"/>
+      <path d="M4 2 L6 4 L4 6 L2 4Z" fill="#1f1a17"/>
+    </pattern>
+    <symbol id="mascot" viewBox="0 0 64 72">
+      <ellipse cx="32" cy="69" rx="16" ry="3" fill="#000" opacity=".15"/>
+      <path d="M17 42 Q32 34 47 42 L52 66 Q32 71 12 66Z" fill="#f7efe4" stroke="#7a3b20" stroke-width="1.4"/>
+      <path d="M14 56 Q32 61 50 56 L51.5 63 Q32 68 12.5 63Z" fill="url(#weave)"/>
+      <rect x="20" y="44" width="24" height="6" rx="2" fill="url(#weave)"/>
+      <circle cx="32" cy="25" r="17" fill="#2b1d16"/>
+      <circle cx="32" cy="27" r="14" fill="#f6d2b4"/>
+      <path d="M18 22 Q24 12 32 14 Q40 12 46 22 Q40 18 32 20 Q24 18 18 22Z" fill="#2b1d16"/>
+      <rect x="15" y="17" width="34" height="5" rx="2.5" fill="url(#weave)" stroke="#7a3b20" stroke-width=".8"/>
+      <circle cx="26.5" cy="28" r="2.2" fill="#2b1d16"/><circle cx="37.5" cy="28" r="2.2" fill="#2b1d16"/>
+      <circle cx="27.2" cy="27.3" r=".7" fill="#fff"/><circle cx="38.2" cy="27.3" r=".7" fill="#fff"/>
+      <ellipse cx="23" cy="32.5" rx="2.6" ry="1.5" fill="#f19a8b" opacity=".7"/><ellipse cx="41" cy="32.5" rx="2.6" ry="1.5" fill="#f19a8b" opacity=".7"/>
+      <path d="M29 33.5 Q32 36 35 33.5" stroke="#8b3b2a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="app">
+  <canvas id="scene" aria-label="詩兩首 3D 群島（可拖曳旋轉、縮放）" role="img"></canvas>
+  <div id="labels" aria-hidden="false"></div>
+  <div id="bubble" class="bubble" role="dialog" aria-live="polite" hidden></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mascot" aria-hidden="true"><use href="#mascot"/></svg>
+      <div>
+        <h1 id="site-title">詩兩首</h1>
+        <p id="site-tagline" class="tagline">學習古詩</p>
+      </div>
+    </div>
+    <nav class="tools" aria-label="工具列">
+      <button class="tool" id="btn-search" type="button" aria-label="搜尋"><span aria-hidden="true">🔍</span><b>搜尋</b></button>
+      <button class="tool" id="list-open" type="button" aria-label="地點清單"><span aria-hidden="true">📋</span><b>清單</b></button>
+      <button class="tool" id="btn-home" type="button" aria-label="回到全景"><span aria-hidden="true">🗺️</span><b>全景</b></button>
+      <button class="tool hide-sm" id="btn-follow" type="button" aria-label="鏡頭跟隨冒險者" aria-pressed="true"><span aria-hidden="true">🎥</span><b>跟隨</b></button>
+      <button class="tool" id="btn-passport" type="button" aria-label="護照與進度"><span aria-hidden="true">📖</span><b>護照</b></button>
+      <button class="tool" id="btn-settings" type="button" aria-label="設定"><span aria-hidden="true">⚙️</span><b>設定</b></button>
+      <button class="tool" id="btn-help" type="button" aria-label="說明"><span aria-hidden="true">❓</span><b>說明</b></button>
+    </nav>
+  </header>
+
+  <section id="hud" class="hud" aria-label="冒險者狀態"></section>
+
+  <div class="bottom-left">
+    <button id="clock" class="chip clock" type="button" aria-label="切換時段"></button>
+    <div class="timebar" role="group" aria-label="晝夜切換">
+      <button type="button" data-time="day" aria-label="白天">☀️</button>
+      <button type="button" data-time="dusk" aria-label="黃昏">🌇</button>
+      <button type="button" data-time="night" aria-label="夜晚">🌙</button>
+      <button type="button" data-time="auto" aria-label="自動流動">⏱</button>
+      <button type="button" data-time="realtime" aria-label="跟現在時間同步">🕰️</button>
+    </div>
+  </div>
+
+  <div class="themebar" role="group" aria-label="底色主題">
+    <button type="button" data-theme-set="sunset"><i style="background:#fbefe3"></i>夕陽</button>
+    <button type="button" data-theme-set="beach"><i style="background:#f6ead2"></i>沙灘</button>
+    <button type="button" data-theme-set="dusk"><i style="background:#2b1e1a"></i>暮色</button>
+  </div>
+
+  <aside id="panel" class="panel" aria-labelledby="panel-title" hidden>
+    <div class="panel-grip" aria-hidden="true"></div>
+    <header class="panel-head">
+      <div>
+        <p id="panel-kicker" class="kicker"></p>
+        <h2 id="panel-title" tabindex="-1"></h2>
+      </div>
+      <button class="icon-btn" id="panel-close" type="button" aria-label="關閉面板（Esc）">✕</button>
+    </header>
+    <div id="panel-body" class="panel-body"></div>
+  </aside>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-head">
+        <h2 id="modal-title" tabindex="-1"></h2>
+        <button class="icon-btn" id="modal-close" type="button" aria-label="關閉（Esc）">✕</button>
+      </header>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="intro" class="intro" hidden>
+    <div class="intro-title">
+      <p class="intro-sub">五年級國語 第七課 美景閒情</p>
+      <h2>詩兩首</h2>
+      <p class="intro-tag">學習古詩</p>
+    </div>
+    <p class="intro-skip">點畫面或按任意鍵跳過</p>
+  </div>
+
+  <div id="loading" class="loading" role="status">
+    <svg class="loading-mascot" aria-hidden="true"><use href="#mascot"/></svg>
+    <p>馨馨正在把小島搬出來……</p>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+  <div id="levelup" class="levelup" aria-live="assertive" hidden></div>
+</div>
+
+<footer class="site-footer" id="site-footer"></footer>
+<div id="print-area" aria-hidden="true"></div>
+
+<noscript><div class="noscript">這個網站需要開啟 JavaScript 才能顯示內容。</div></noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
