@@ -137,6 +137,21 @@ a[data-act]{color:var(--brand2);text-decoration:none}
 .rounds{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
 .rbadge{font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:3px 8px;background:#f7f8fc}.rbadge.on{border-color:#e2a32c;background:#fff7e6}
 .pbar2{display:inline-block;height:8px;background:#6a86e0;border-radius:3px;vertical-align:0}
+
+/* v5 作答登錄 */
+.iteminfo{background:#f6f7fc;border-radius:10px;padding:10px 12px;font-size:14px}
+.rub{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:13px;color:#454b66}
+.stiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.stile{border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;background:#fff}
+.stile.bad{border-color:#e7a4a4;background:#fff6f6}.stile.part{border-color:#ecc56b;background:#fffaf0}.stile.ok{border-color:#9fd8b8}
+.sth{font-size:14px;display:flex;gap:6px;align-items:center}.sts{margin-left:auto;font-size:12.5px;font-weight:700;color:#a32020}.stile.ok .sts{color:#2f8f5b}
+.sraw{font-size:13px;color:#2b3046;background:#f1f3fa;border-radius:6px;padding:3px 6px;margin:5px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sbt{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.ob{border:1px solid var(--line);background:#fff;border-radius:7px;padding:3px 8px;font-size:13px;min-width:30px}
+.ob.key{border-color:#2f8f5b;color:#2f8f5b;font-weight:700}.ob.on{background:#c43a3a;border-color:#c43a3a;color:#fff}.ob.key.on,.ob.okb.on{background:#2f8f5b;border-color:#2f8f5b;color:#fff}
+.ob.sc.on{background:#e2a32c;border-color:#e2a32c}.ob.cd{color:#5a35a8;border-color:#cbb8ee}.ob.cd.on{background:#5a35a8;color:#fff}
+.qchip{display:inline-block;background:#fde3e3;color:#a32020;border-radius:6px;padding:1px 7px;margin:2px;font-size:12.5px}.qchip.part{background:#fff1cc;color:#8a5a00}
+.pitem{border-top:1px solid var(--line);padding:12px 0}.pgroup{padding:8px 0 4px;border-bottom:1px dashed var(--line)}.pans{font-size:15px}
 /* 列印文件 */
 .docwrap{background:#e3e6ee;border-radius:12px;padding:16px;overflow-x:auto}
 .doc{background:#fff;width:780px;margin:0 auto;padding:30px 32px;color:#000;font-size:12.5px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
@@ -2102,6 +2117,242 @@ function webNote(){
   d.style.cssText='background:#fff7e6;border-bottom:1px solid #f3d9a4;color:#7a5410;font-size:13.5px;padding:8px 18px';
   document.querySelector('nav.tabs').after(d);
 }
+
+/* ================= v5 作答登錄：逐題批改、快速錯題、電子作答匯入、填充與造句 ================= */
+['造句','改錯','翻譯'].forEach(t=>{if(!QTYPES.includes(t))QTYPES.push(t)});
+const OPEN_TYPES=['造句','簡答題','寫作','改錯','翻譯','閱讀測驗'];
+PCOLS.push(['ans',['標準答案','參考答案']],['rubric',['評分規準','評分標準']]);
+Object.assign(ui,{respMode:'item',respItem:0,remember:true,impStart:''});
+function normPaper(p){
+  if(!p)return p;
+  const d=Object.getOwnPropertyDescriptor(p,'miscons');
+  if(d&&!d.get){const legacy=d.value||[];delete p.miscons;
+    if(DB&&DB.papers&&DB.papers.includes(p)){ensureLib();mergeLegacy(p,legacy)}else Object.defineProperty(p,'__legacy',{value:legacy,enumerable:false,configurable:true})}
+  if(!Object.getOwnPropertyDescriptor(p,'miscons'))Object.defineProperty(p,'miscons',{enumerable:false,configurable:true,
+    get(){const L=DB.lib.miscons;return p.__legacy?L.concat(p.__legacy.filter(m=>!L.some(x=>x.id===m.id))):L},set(v){DB.lib.miscons=v}});
+  p.resp=p.resp||{};p.remed=p.remed||{};p.kind=p.kind||'段考';p.adate=p.adate||'';
+  (p.items||[]).forEach(it=>{if(it.concept==null)it.concept='';if(it.key==null)it.key='';if(!it.mis||typeof it.mis!=='object')it.mis={};
+    if(it.ans==null)it.ans='';if(!Array.isArray(it.ansAlt))it.ansAlt=[];if(!it.wrong||typeof it.wrong!=='object')it.wrong={};if(!Array.isArray(it.rubric))it.rubric=[]});
+  return p;
+}
+function respOf(p,c){p.resp[c.id]=p.resp[c.id]||{blankOk:true,data:{},absent:{}};const R=p.resp[c.id];
+  R.data=R.data||{};R.absent=R.absent||{};R.raw=R.raw||{};R.pending=R.pending||{};if(R.blankOk==null)R.blankOk=true;return R}
+const normAns=s=>String(s??'').replace(/[！-～]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xfee0)).replace(/　/g,' ').replace(/\s+/g,'').replace(/[。．.]$/,'').toLowerCase();
+const accepted=it=>String(it.ans||'').split(/[／/|｜]/).concat(it.ansAlt||[]).map(normAns).filter(Boolean);
+const rubricOf=it=>(it.rubric||[]).map(l=>{const m=String(l).match(/^\s*(\d+(?:\.\d+)?)\s*[分]?\s*[:：、.\-]?\s*(.*)$/);return m?{s:+m[1],d:m[2]}:null}).filter(Boolean);
+const isOpen=it=>OPEN_TYPES.includes(it.type)||rubricOf(it).length>0;
+function pendingCount(R){return Object.values(R.pending||{}).reduce((a,g)=>a+Object.values(g).reduce((b,x)=>b+x.sids.length,0),0)}
+function parseVal(v){const m=String(v||'').toLowerCase().match(/^(\d+(?:\.\d+)?)?([a-h])?$/);return m?{s:m[1]!=null?+m[1]:null,c:m[2]||null}:{s:null,c:null}}
+function setVal(R,sid,it,v){R.data[sid]=R.data[sid]||{};if(v===''||v==null)delete R.data[sid][it.id];else R.data[sid][it.id]=v}
+function misShort(p,it,code){const id=it.mis[code];const m=id&&p.miscons.find(x=>x.id===id);return m?m.name:''}
+
+/* ---------- 作答登錄分頁 ---------- */
+function renderRespTab(){
+  const p=P();if(!p){$('#p-resp').innerHTML=ctxBar(p)+noPaper();return}
+  const c=C();if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+'<div class="card"><p class="flat">請先在「📝 評量設計」建立題目。</p></div>';return}
+  if(!c.students.length){$('#p-resp').innerHTML=ctxBar(p)+`<div class="card"><p class="flat">目前班級「${esc(c.name)}」沒有學生。</p></div>`;return}
+  const R=respOf(p,c),pend=pendingCount(R);
+  const modes=[['item','① 逐題批改（推薦）'],['quick','② 快速錯題輸入'],['import',`③ 匯入電子作答${pend?`（待確認 ${pend}）`:''}`],['grid','④ 總表檢視']];
+  const body=ui.respMode==='quick'?respQuickHTML(p,c):ui.respMode==='import'?respImportHTML(p,c):ui.respMode==='grid'?paperRespHTML(p):respItemHTML(p,c);
+  $('#p-resp').innerHTML=ctxBar(p)+`<div class="card" style="padding:12px 16px"><div class="spread" style="margin:0">${subtabs(ui.respMode,'respmode',modes)}
+   ${ui.respMode!=='grid'?`<label class="chk" style="margin:0"><input type="checkbox" id="blankOk" ${R.blankOk?'checked':''}> 沒登錄的題目視為答對（只要記錄錯題）</label>`:''}</div>
+   ${pend&&ui.respMode!=='import'?`<div class="banner" style="margin:10px 0 0"><span>📥 有 <b>${pend}</b> 筆電子作答需要老師判斷（目前暫以答錯計）。</span><button class="btn sm warn" data-act="respmode" data-v="import">前往確認</button></div>`:''}</div>`+body;
+}
+function respItemHTML(p,c){
+  const R=respOf(p,c),items=p.items,i=ui.respItem=Math.min(Math.max(0,ui.respItem|0),items.length-1),it=items[i],full=num(it.score)||0;
+  const studs=sortedS(c).filter(s=>!R.absent[s.id]),rub=rubricOf(it),codes=Object.keys(it.mis).filter(k=>it.mis[k]).sort();
+  const wrongN=studs.filter(s=>!evalCell(it,(R.data[s.id]||{})[it.id],R.blankOk).ok).length;
+  const done=items.map(x=>studs.some(s=>(R.data[s.id]||{})[x.id]));
+  const tile=s=>{const v=(R.data[s.id]||{})[it.id]||'',e=evalCell(it,v,R.blankOk),raw=(R.raw[s.id]||{})[it.id],pv=parseVal(v),st=e.ok?'ok':e.partial?'part':'bad';
+    let btns='';
+    if(it.key){btns=['A','B','C','D'].map(o=>`<button class="ob ${o===it.key?'key':''} ${(v.toUpperCase()===o||(!v&&o===it.key&&R.blankOk))?'on':''}" data-act="rv" data-s="${s.id}" data-v="${o}">${o}</button>`).join('')+`<button class="ob ${v==='x'?'on':''}" data-act="rv" data-s="${s.id}" data-v="x" title="未作答">未答</button>`}
+    else{btns=`<button class="ob okb ${e.ok?'on':''}" data-act="rv" data-s="${s.id}" data-v="ok">✓</button><button class="ob ${v==='x'?'on':''}" data-act="rv" data-s="${s.id}" data-v="x">✗</button>`;
+      const scores=rub.length?rub.map(r=>r.s).filter(x=>x<full):(full>=2?Array.from({length:Math.min(full-1,5)},(_,k)=>k+1):[]);
+      btns+=scores.map(n=>`<button class="ob sc ${pv.s===n?'on':''}" data-act="rv" data-s="${s.id}" data-v="s:${n}" title="${esc((rub.find(r=>r.s===n)||{}).d||'部分給分')}">${n}分</button>`).join('');
+      btns+=codes.map(cd=>`<button class="ob cd ${pv.c===cd?'on':''}" data-act="rv" data-s="${s.id}" data-v="c:${cd}" title="${esc(misShort(p,it,cd))}">${cd}</button>`).join('')}
+    return `<div class="stile ${v?st:''}"><div class="sth"><b>${s.seat}</b> ${esc(s.name)}<span class="sts">${v?(e.ok?'✓':e.partial?fmt(e.s)+'分':'✗')+(e.mis?' '+esc((p.miscons.find(m=>m.id===e.mis)||{}).code||''):''):''}</span></div>${raw?`<div class="sraw" title="${esc(raw)}">「${esc(raw)}」</div>`:''}<div class="sbt">${btns}</div></div>`};
+  return `<div class="card"><div class="spread"><div class="row"><button class="btn" data-act="ritem" data-v="${i-1}" ${i?'':'disabled'}>‹ 上一題</button>
+   <select id="riSel" class="inp">${items.map((x,k)=>`<option value="${k}" ${k===i?'selected':''}>${done[k]?'● ':'○ '}${esc(x.no)}　${esc(x.sum).slice(0,18)}</option>`).join('')}</select>
+   <button class="btn primary" data-act="ritem" data-v="${i+1}" ${i<items.length-1?'':'disabled'}>下一題 ›</button><span class="flat" style="font-size:13px">第 ${i+1}／${items.length} 題｜鍵盤 ← → 換題</span></div>
+   <div class="row"><span style="font-size:14px">答錯 <b class="down">${wrongN}</b>／${studs.length} 人</span><button class="btn sm" data-act="clearitem">本題全班答對</button></div></div>
+   <div class="iteminfo"><div><b style="font-size:17px">${esc(it.no)}</b>　${esc(it.sum)}　<span class="flat">${esc(it.type)}｜${it.score??''} 分｜${esc(it.concept)||'未設概念'}</span></div>
+    <div style="margin-top:4px">${it.key?`正確答案：<b class="up">${esc(it.key)}</b>　${Object.entries(it.mis).filter(([,v])=>v).map(([o,id])=>`<span class="acc">${o}→${esc((p.miscons.find(m=>m.id===id)||{}).name||'')}</span>`).join('')}`
+     :`${it.ans?`標準答案：<b class="up">${esc(it.ans)}</b>　`:''}${codes.map(cd=>`<span class="acc">${cd}：${esc(misShort(p,it,cd))}</span>`).join('')||'<span class="flat" style="font-size:13px">尚未設定錯誤類型代碼（可到題目的「迷失對應」設定）</span>'}`}</div>
+    ${rub.length?`<div class="rub">${rub.map(r=>`<span><b>${r.s} 分</b>：${esc(r.d)}</span>`).join('')}</div>`:''}</div>
+   <p class="hint" style="margin:8px 0">${it.key?'點學生實際選的選項；綠框是正確答案（預設）。':'答對不用動。答錯按 ✗；部分給分按分數；知道錯誤類型就再按代碼（可和分數合併，例如「1分＋a」）。'}</p>
+   <div class="stiles">${studs.map(tile).join('')}</div></div>`;
+}
+function serializeRow(p,row){return p.items.filter(it=>row[it.id]).map(it=>row[it.id]==='x'?it.no:`${it.no}:${row[it.id]}`).join(' ')}
+function parseQuick(p,text){
+  const out={},bad=[];
+  String(text||'').split(/[\s,，、;；]+/).filter(Boolean).forEach(tok=>{
+    const m=tok.match(/^(#?\d+|[^:：=]+?)(?:[:：=](.+))?$/);if(!m){bad.push(tok);return}
+    let it=null,id=m[1];
+    if(id[0]==='#')it=p.items[+id.slice(1)-1];else it=p.items.find(x=>x.no===id)||(/^\d+$/.test(id)&&!p.items.some(x=>/^\d+$/.test(x.no))?p.items[+id-1]:null);
+    if(!it){bad.push(tok);return}
+    let v=(m[2]||'x').trim();v=it.key?v.toUpperCase():v.toLowerCase();
+    if(!it.key&&v!=='x'&&!/^(\d+(?:\.\d+)?)?([a-h])?$/.test(v)){bad.push(tok);return}
+    if(it.key&&v!=='X'&&!/^[A-E]$/.test(v)){bad.push(tok);return}
+    out[it.id]=v==='X'?'x':v});
+  return{out,bad};
+}
+function respQuickHTML(p,c){
+  const R=respOf(p,c);
+  return `<div class="card"><h2>快速錯題輸入</h2><p class="hint">每位學生一行，只打<b>答錯的題號</b>，用空白或逗號分隔，打完按 Enter 換下一位。題號後面可以加「:」補充：<br>
+   <code>二-3</code> 答錯　<code>四-4:A</code> 選擇題選了 A　<code>二-5:a</code> 錯誤類型 a　<code>三-2:2</code> 得 2 分　<code>三-2:1a</code> 得 1 分且錯誤類型 a　<code>#12</code> 第 12 題（依題目順序）</p>
+   <div class="tw"><table class="t" style="min-width:0"><thead><tr><th>座號</th><th class="l">姓名</th><th>缺考</th><th class="l" style="width:46%">錯題</th><th class="l">判讀結果</th><th>得分</th></tr></thead><tbody>
+   ${sortedS(c).map(s=>{const row=R.data[s.id]||{},ab=!!R.absent[s.id],tot=p.items.reduce((a,x)=>a+evalCell(x,row[x.id],R.blankOk).s,0);
+     return `<tr><td>${s.seat}</td><td class="l"><b>${esc(s.name)}</b></td><td><input type="checkbox" class="absChk" data-s="${s.id}" ${ab?'checked':''}></td>
+     <td class="l"><input class="inp qe" data-s="${s.id}" style="width:100%" value="${esc(serializeRow(p,row))}" ${ab?'disabled':''} placeholder="例：二-3 四-4:A 三-2:1a"></td>
+     <td class="l" style="font-size:12.5px" id="qp-${s.id}">${quickChips(p,row)}</td><td><b>${ab?'缺考':fmt(tot)}</b></td></tr>`}).join('')}</tbody></table></div></div>`;
+}
+function quickChips(p,row){return p.items.filter(it=>row[it.id]).map(it=>{const v=row[it.id],e=evalCell(it,v,true),m=e.mis&&p.miscons.find(x=>x.id===e.mis);
+  return `<span class="qchip ${e.partial?'part':''}">${esc(it.no)}${v!=='x'?':'+esc(v):''}${m?'・'+esc(m.code):''}</span>`}).join('')||'<span class="flat">全對</span>'}
+function respImportHTML(p,c){
+  const R=respOf(p,c),groups=[];
+  p.items.forEach(it=>{const g=R.pending[it.id];if(g)Object.entries(g).forEach(([k,x])=>groups.push({it,k,x}))});
+  const studName=id=>{const s=c.students.find(x=>x.id===id);return s?s.name:'?'};
+  const byItem={};groups.forEach(g=>(byItem[g.it.id]=byItem[g.it.id]||{it:g.it,list:[]}).list.push(g));
+  return `<div class="card"><h2>匯入電子作答（Google 表單、線上測驗、讀卡機）</h2>
+   <p class="hint">把作答結果整份複製貼上（或選擇 CSV 檔）。第一列要是標題列，需有「座號」或「姓名」欄；各題欄位的標題以題號開頭（例如「二-3」「1.」），或用下方指定從第幾欄開始依序對應題目。</p>
+   <ul class="hint" style="margin:0 0 10px;padding-left:20px"><li><b>選擇題</b>：自動讀出 A～E，對照正確答案與錯誤選項。</li><li><b>填充題</b>：自動和「標準答案」比對（全形半形、空白不影響）；答案不同的會<b>依相同答案合併</b>，老師只要判斷一次。</li><li><b>造句、簡答</b>：列出每位學生的回答，依「評分規準」點選分數與錯誤類型。</li></ul>
+   <textarea id="impBox" rows="6" class="inp" style="width:100%;font-family:monospace;font-size:12.5px" placeholder="座號	姓名	1	2	3 …"></textarea>
+   <div class="row" style="margin-top:8px"><label class="flat" style="font-size:13px">第一題在第幾欄（留空＝自動）</label><input id="impStart" class="inp" style="width:70px" value="${esc(ui.impStart)}" inputmode="numeric">
+    <button class="btn primary" data-act="importans">匯入並自動判讀</button><button class="btn" data-act="impfile">選擇 CSV 檔</button><button class="btn dark" data-act="resptpl">⬇ 作答範本（含名單與題號）</button></div></div>
+  ${groups.length?`<div class="card"><div class="spread"><div><h2>待老師判斷（${pendingCount(R)} 筆）</h2><p class="hint" style="margin:0">相同的答案已合併，判斷一次就套用到所有寫這個答案的學生。</p></div>
+   <label class="chk" style="margin:0"><input type="checkbox" id="remember" ${ui.remember?'checked':''}> 記住判斷（下次同一題遇到相同答案自動套用）</label></div>
+   ${Object.values(byItem).map(({it,list})=>{const full=num(it.score)||0,rub=rubricOf(it),codes=Object.keys(it.mis).filter(k=>it.mis[k]).sort();
+     const scoreBtns=(rub.length?rub.map(r=>r.s).filter(x=>x>0&&x<full):(full>=2?Array.from({length:Math.min(full-1,5)},(_,k)=>k+1):[]));
+     return `<div class="pitem"><div class="iteminfo"><b>${esc(it.no)}</b>　${esc(it.sum)}　<span class="flat">${esc(it.type)}｜${it.score??''} 分</span>${it.key?`　正確答案：<b class="up">${esc(it.key)}</b>`:it.ans?`　標準答案：<b class="up">${esc(it.ans)}</b>`:''}
+      ${rub.length?`<div class="rub">${rub.map(r=>`<span><b>${r.s} 分</b>：${esc(r.d)}</span>`).join('')}</div>`:''}${codes.length?`<div style="margin-top:4px">${codes.map(cd=>`<span class="acc">${cd}：${esc(misShort(p,it,cd))}</span>`).join('')}</div>`:''}</div>
+      ${list.map(g=>`<div class="pgroup"><div class="pans">「${esc(g.x.raw||'（空白）')}」<span class="flat" style="font-size:12.5px">　${g.x.sids.length} 人：${esc(g.x.sids.map(studName).join('、'))}</span></div>
+       <div class="sbt"><button class="ob okb" data-act="pjudge" data-i="${esc(it.id)}" data-k="${esc(g.k)}" data-v="ok">✓ 算對</button><button class="ob" data-act="pjudge" data-i="${esc(it.id)}" data-k="${esc(g.k)}" data-v="x">✗ 答錯</button>
+       ${scoreBtns.map(n=>`<button class="ob sc" data-act="pjudge" data-i="${esc(it.id)}" data-k="${esc(g.k)}" data-v="${n}" title="${esc((rub.find(r=>r.s===n)||{}).d||'')}">${n} 分</button>`).join('')}
+       ${codes.map(cd=>`<button class="ob cd" data-act="pjudge" data-i="${esc(it.id)}" data-k="${esc(g.k)}" data-v="${cd}" title="${esc(misShort(p,it,cd))}">✗ ${cd}</button>`).join('')}
+       ${scoreBtns.length&&codes.length?scoreBtns.slice(0,2).flatMap(n=>codes.slice(0,2).map(cd=>`<button class="ob" data-act="pjudge" data-i="${esc(it.id)}" data-k="${esc(g.k)}" data-v="${n}${cd}">${n}分＋${cd}</button>`)).join(''):''}</div></div>`).join('')}</div>`}).join('')}</div>`
+  :`<div class="card"><p class="flat" style="margin:0">目前沒有待判斷的作答。</p></div>`}`;
+}
+function importAnswers(text){
+  const p=P(),c=C(),R=respOf(p,c);text=String(text||'').replace(/^﻿/,'');
+  const d=text.split('\n')[0].includes('\t')?'\t':',',rows=parseDelim(text,d);if(rows.length<2)throw new Error('至少要有標題列和一位學生');
+  const h=rows[0].map(x=>x.trim()),seatC=h.findIndex(x=>/座號|號碼|座次|seat/i.test(x)),nameC=h.findIndex(x=>/姓名|名字|學生|name/i.test(x));
+  if(seatC<0&&nameC<0)throw new Error('找不到「座號」或「姓名」欄');
+  const esc2=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  let col=p.items.map(it=>h.findIndex(x=>x===it.no||new RegExp('^\\s*'+esc2(it.no)+'(?![\\d(（])').test(x)));
+  const st=parseInt(ui.impStart,10);
+  if(st>0||col.filter(x=>x>=0).length<p.items.length/2){const s0=st>0?st-1:Math.max(seatC,nameC)+1;col=p.items.map((it,i)=>s0+i)}
+  let n=0,auto=0,pend=0;const unknown=[];
+  rows.slice(1).forEach(r=>{
+    let s=null;if(seatC>=0)s=c.students.find(x=>String(x.seat)===String(r[seatC]).trim().replace(/^0+/,''));
+    if(!s&&nameC>=0)s=c.students.find(x=>x.name===String(r[nameC]).trim());
+    if(!s){if(r.some(x=>x.trim()))unknown.push(r[seatC>=0?seatC:nameC]);return}
+    n++;const prevD=R.data[s.id]||{},prevR=R.raw[s.id]||{};R.data[s.id]={};R.raw[s.id]={};delete R.absent[s.id];
+    p.items.forEach((it,i)=>{
+      const wasPend=Object.values(R.pending[it.id]||{}).some(g=>g.sids.includes(s.id));
+      Object.values(R.pending[it.id]||{}).forEach(g=>{g.sids=g.sids.filter(x=>x!==s.id)});
+      const raw=String(r[col[i]]??'').trim();if(raw)R.raw[s.id][it.id]=raw;
+      if(raw&&raw===prevR[it.id]&&!wasPend){if(prevD[it.id])R.data[s.id][it.id]=prevD[it.id];auto++;return}
+      if(!raw){R.data[s.id][it.id]='x';auto++;return}
+      if(it.key){const m=raw.match(/^\s*[（(]?\s*([A-Ea-e])(?![A-Za-z])/);if(m){const L=m[1].toUpperCase();if(L!==it.key.toUpperCase())R.data[s.id][it.id]=L;auto++;return}}
+      else{const k=normAns(raw);if(accepted(it).includes(k)){auto++;return}if(it.wrong[k]!=null){R.data[s.id][it.id]=it.wrong[k];auto++;return}}
+      const k=normAns(raw)||'(空白)';R.pending[it.id]=R.pending[it.id]||{};const g=R.pending[it.id][k]=R.pending[it.id][k]||{raw,sids:[]};g.sids.push(s.id);R.data[s.id][it.id]='x';pend++;
+    });
+  });
+  Object.keys(R.pending).forEach(id=>{Object.keys(R.pending[id]).forEach(k=>{if(!R.pending[id][k].sids.length)delete R.pending[id][k]});if(!Object.keys(R.pending[id]).length)delete R.pending[id]});
+  save();ui.respMode='import';renderRespTab();
+  toast(`已匯入 ${n} 位學生：自動判讀 ${auto} 筆，待老師判斷 ${pend} 筆${unknown.length?`；找不到的學生：${unknown.slice(0,5).join('、')}`:''}`);
+}
+function judgePending(itId,k,v){
+  const p=P(),c=C(),R=respOf(p,c),it=p.items.find(x=>x.id===itId),g=R.pending[itId]&&R.pending[itId][k];if(!it||!g)return;
+  g.sids.forEach(sid=>setVal(R,sid,it,v==='ok'?'':v));
+  if(ui.remember&&!OPEN_TYPES.includes(it.type)&&k!=='(空白)'){if(v==='ok'){if(!it.ansAlt.includes(k))it.ansAlt.push(k)}else it.wrong[k]=v}
+  delete R.pending[itId][k];if(!Object.keys(R.pending[itId]).length)delete R.pending[itId];
+  save();renderRespTab();
+}
+
+/* ---------- 題目設定：答案、標準答案、評分規準、迷失對應 ---------- */
+function openItemMis(i){
+  const p=P(),it=p.items[i];ui.itemIdx=i;
+  const choice=!!it.key,codes=choice?['A','B','C','D','E'].filter(x=>x!==it.key.toUpperCase()):['a','b','c','d','e'];
+  const wr=Object.entries(it.wrong||{});
+  openModal(`<h3>答案與迷失對應：${esc(it.no)}　${esc(it.sum)}</h3>
+  <div class="grid3"><div class="f"><label>選擇題正確選項（A～E；非選擇題留空）</label><input id="imKey" value="${esc(it.key)}" maxlength="1" style="text-transform:uppercase"></div>
+   <div class="f"><label>對應概念</label><input id="imCon" list="conDL3" value="${esc(it.concept)}"><datalist id="conDL3">${DB.lib.concepts.map(k=>`<option value="${esc(k.name)}">`).join('')}</datalist></div>
+   <div class="f"><label>題型</label><select id="imType">${opt(QTYPES,it.type,1)}</select></div></div>
+  ${choice?'':`<div class="f"><label>標準答案（填充題；可接受多種寫法時用 ／ 分隔，例：120／一百二十）</label><input id="imAns" value="${esc(it.ans)}" placeholder="匯入電子作答時自動比對；造句、簡答可留空"></div>
+  <div class="f"><label>評分規準（造句、簡答、應用題等；一行一個等級，格式「分數：說明」）</label><textarea id="imRub" rows="3" placeholder="2：句子完整、關聯詞使用正確&#10;1：句子完整但關聯詞搭配錯誤&#10;0：句子不完整或未作答">${esc(it.rubric.join('\n'))}</textarea></div>`}
+  <h4 style="margin:6px 0">${choice?'錯誤選項代表的迷失概念':'錯誤類型代碼 a～e 代表的迷失概念'}</h4>
+  ${p.miscons.length?codes.map(cd=>`<div class="row" style="margin-bottom:6px"><b style="width:30px;font-size:16px">${cd}</b><select class="inp imSel" data-code="${cd}" style="flex:1">${misOptions(p,it.mis[cd])}</select></div>`).join(''):'<p class="down">教材庫還沒有迷失概念，請先新增或從範例庫加入。</p>'}
+  ${!choice&&(wr.length||it.ansAlt.length)?`<h4 style="margin:10px 0 4px">已記住的判斷（匯入電子作答時自動套用）</h4><div>${it.ansAlt.map(a=>`<span class="qchip">「${esc(a)}」→ 算對 <a href="#" data-act="delalt" data-k="${esc(a)}">✕</a></span>`).join('')}${wr.map(([a,v])=>`<span class="qchip part">「${esc(a)}」→ ${esc(v)} <a href="#" data-act="delwrong" data-k="${esc(a)}">✕</a></span>`).join('')}</div>`:''}
+  <div class="spread" style="margin:12px 0 0"><div class="row"><button class="btn" data-act="newmis" data-from="item">＋ 新增迷失概念</button><button class="btn" data-act="mislib" data-from="item">📚 範例庫</button></div><div class="row"><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="saveitemmis">儲存</button></div></div>`,true);
+  $('#imKey').onchange=()=>{collectItemMis();openItemMis(i)};
+}
+function collectItemMis(){const p=P(),it=p.items[ui.itemIdx];if(!it)return;
+  const k=$('#imKey').value.trim().toUpperCase().slice(0,1);if(k!==(it.key||'').toUpperCase())it.mis={};it.key=k;it.concept=$('#imCon').value.trim();if($('#imType').value)it.type=$('#imType').value;
+  if($('#imAns'))it.ans=$('#imAns').value.trim();if($('#imRub'))it.rubric=$('#imRub').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  document.querySelectorAll('.imSel').forEach(s=>{if(s.value)it.mis[s.dataset.code]=s.value;else delete it.mis[s.dataset.code]});
+  ensureConcept(it.concept,p.subject,p.grade);}
+function parsePaperRows(text){
+  text=text.replace(/^﻿/,'');const d=text.split('\n')[0].includes('\t')?'\t':',';
+  let rows=parseDelim(text,d);if(!rows.length)throw new Error('沒有讀到資料');
+  let map=PCOLS.map((c,i)=>i);const h=rows[0].map(x=>x.trim());
+  if(h.some(x=>x==='題號'||x==='大題'||x==='配分')){map=PCOLS.map(([k,names])=>h.findIndex(x=>names.includes(x)));rows=rows.slice(1)}
+  return rows.map(r=>{const o={id:uid()};PCOLS.forEach(([k],i)=>{const j=map[i];o[k]=j>=0?(r[j]??'').trim():''});
+    o.score=num(o.score);const rk=String(o.key||'').trim();
+    if(o.type==='選擇題'||/^[A-Ea-e]$/.test(rk)){o.key=rk.toUpperCase().slice(0,1)}else{o.key='';if(rk&&!o.ans)o.ans=rk}
+    o.rubric=String(o.rubric||'').split(/[；;\n]/).map(x=>x.trim()).filter(Boolean);o.ansAlt=[];o.wrong={};
+    o.mis={};o.lit=/^(✓|v|是|1|y|yes|true|o|○|◎)$/i.test(o.lit);return o}).filter(o=>o.no||o.sum);
+}
+function renderDiagTab(){const p=P(),c=C(),pend=p?pendingCount(respOf(p,c)):0;
+  $('#p-diag').innerHTML=ctxBar(p)+`<div class="card" style="padding:12px 16px">${subtabs(ui.diagTab,'diagtab',[['now','本次評量診斷'],['trend','跨評量概念追蹤']])}
+   ${pend&&ui.diagTab==='now'?`<div class="banner" style="margin:10px 0 0"><span>📥 還有 <b>${pend}</b> 筆電子作答待老師判斷，目前暫以答錯計，診斷結果可能偏低。</span><button class="btn sm warn" data-act="gopend">前往確認</button></div>`:''}</div>`+(ui.diagTab==='trend'?trendHTML(c):(p?paperDiagHTML(p):noPaper()));
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
+  const H={
+    respmode:()=>{ui.respMode=b.dataset.v;go('resp')},
+    gopend:()=>{ui.respMode='import';go('resp')},
+    ritem:()=>{ui.respItem=+b.dataset.v;renderRespTab()},
+    clearitem:()=>{const p=P(),c=C(),R=respOf(p,c),it=p.items[ui.respItem];c.students.forEach(s=>setVal(R,s.id,it,''));save();renderRespTab()},
+    rv:()=>{const p=P(),c=C(),R=respOf(p,c),it=p.items[ui.respItem],sid=b.dataset.s,cur=(R.data[sid]||{})[it.id]||'',v=b.dataset.v;let nv;
+      if(it.key)nv=v===it.key?'':(v==='x'?(cur==='x'?'':'x'):(cur.toUpperCase()===v?'':v));
+      else if(v==='ok')nv='';else if(v==='x')nv=cur==='x'?'':'x';
+      else{const pv=parseVal(cur==='x'?'':cur);if(v.startsWith('s:')){const n=+v.slice(2);pv.s=pv.s===n?null:n}else{const cd=v.slice(2);pv.c=pv.c===cd?null:cd}nv=(pv.s!=null?String(pv.s):'')+(pv.c||'');if(!nv&&cur)nv=''}
+      setVal(R,sid,it,nv);save();renderRespTab()},
+    importans:()=>{try{importAnswers($('#impBox').value)}catch(err){toast('無法匯入：'+err.message)}},
+    impfile:()=>{let f=document.getElementById('fileAns');if(!f){f=document.createElement('input');f.type='file';f.id='fileAns';f.accept='.csv,.txt,.tsv';f.hidden=true;document.body.appendChild(f);
+      f.addEventListener('change',()=>{const x=f.files[0];if(!x)return;const rd=new FileReader();rd.onload=()=>{try{importAnswers(rd.result)}catch(err){toast('無法匯入：'+err.message)}f.value=''};rd.readAsText(x,'utf-8')})}f.click()},
+    pjudge:()=>judgePending(b.dataset.i,b.dataset.k,b.dataset.v),
+    delwrong:()=>{e.preventDefault();const it=P().items[ui.itemIdx];collectItemMis();delete it.wrong[b.dataset.k];save();openItemMis(ui.itemIdx)},
+    delalt:()=>{e.preventDefault();const it=P().items[ui.itemIdx];collectItemMis();it.ansAlt=it.ansAlt.filter(x=>x!==b.dataset.k);save();openItemMis(ui.itemIdx)},
+  };
+  if(H[a]){e.stopPropagation();e.stopImmediatePropagation();H[a]()}
+},true);
+document.addEventListener('change',e=>{
+  const t=e.target;let hit=true;
+  if(t.id==='riSel'){ui.respItem=+t.value;renderRespTab()}
+  else if(t.classList&&t.classList.contains('qe')){const p=P(),c=C(),R=respOf(p,c),{out,bad}=parseQuick(p,t.value);R.data[t.dataset.s]=out;save();
+    const cell=document.getElementById('qp-'+t.dataset.s);if(cell)cell.innerHTML=quickChips(p,out)+(bad.length?`<span class="down">　找不到這些題號：${esc(bad.join(' '))}（題號要和題目清單一致，例如 七-2(1)）</span>`:'');
+    const tot=p.items.reduce((a,x)=>a+evalCell(x,out[x.id],R.blankOk).s,0);const td=t.closest('tr').lastElementChild;if(td)td.innerHTML='<b>'+fmt(tot)+'</b>'}
+  else if(t.id==='impStart'){ui.impStart=t.value}
+  else if(t.id==='remember'){ui.remember=t.checked}
+  else if(t.id==='blankOk'&&ui.tab==='resp'){respOf(P(),C()).blankOk=t.checked;save();renderRespTab()}
+  else if(t.classList&&t.classList.contains('absChk')&&ui.tab==='resp'){const R=respOf(P(),C());if(t.checked)R.absent[t.dataset.s]=true;else delete R.absent[t.dataset.s];save();renderRespTab()}
+  else hit=false;
+  if(hit){e.stopPropagation();e.stopImmediatePropagation()}
+},true);
+document.addEventListener('keydown',e=>{
+  const t=e.target;
+  if(t.classList&&t.classList.contains('qe')&&e.key==='Enter'){e.preventDefault();const all=[...document.querySelectorAll('input.qe:not(:disabled)')],nx=all[all.indexOf(t)+1];t.dispatchEvent(new Event('change',{bubbles:true}));if(nx){nx.focus();nx.select()}return}
+  if(ui.tab==='resp'&&ui.respMode==='item'&&!/INPUT|TEXTAREA|SELECT/.test(t.tagName)&&!$('#modalBg').classList.contains('on')){
+    if(e.key==='ArrowRight'&&ui.respItem<P().items.length-1){ui.respItem++;renderRespTab()}else if(e.key==='ArrowLeft'&&ui.respItem>0){ui.respItem--;renderRespTab()}}
+},true);
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act="resptpl"]');if(!b||ui.respMode!=='import')return;e.stopPropagation();e.stopImmediatePropagation();
+  const p=P(),c=C();download(`${c.name}_${p.title}_作答範本.csv`,toCSV([['座號','姓名',...p.items.map(it=>it.no)],...sortedS(c).map(s=>[s.seat,s.name,...p.items.map(()=>'')])]),'text/csv;charset=utf-8');
+},true);
 
 load();ensure();renderHeader();go('home');webNote();
 </script>
