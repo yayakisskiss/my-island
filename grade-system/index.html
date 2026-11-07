@@ -108,7 +108,7 @@ table.t{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
 .doc .tipbox{border:1.5px solid #3b67b0;border-radius:8px;padding:8px 10px;margin:8px 0;background:#f3f6fc}
 .doc .ws{margin:10px 0;page-break-inside:avoid}.doc .wsline{border-bottom:1px dotted #777;height:28px}
 
-/* v4 教學循環 */
+/* v4 教學循環 */ #tabs button[data-tab=home]{margin-left:14px;position:relative} #tabs button[data-tab=home]::before{content:'';position:absolute;left:-9px;top:20%;bottom:20%;border-left:2px solid #c9cee3}
 .ctx{padding:12px 16px}
 .cycle{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .cycle .cy{border:1px solid var(--line);background:#fff;border-radius:10px;padding:5px 12px;display:flex;flex-direction:column;align-items:flex-start;font-size:13.5px;line-height:1.3}
@@ -1760,7 +1760,7 @@ function addDemo(){
 
 /* ================= v4 畫面 ================= */
 Object.assign(ui,{tab:'home',examTab:'entry',dtab:'edit',diagTab:'now',libTab:'mis',libSubj:'',sid:null,srSel:'all',srTeacher:false});
-const NAV=[['home','🏠 班級總覽'],['lib','📚 教材庫'],['design','📝 評量試卷分析'],['resp','✍ 作答登錄'],['diag','🔍 分析診斷'],['remed','🩹 補救教學'],['student','👤 學習報告與路徑'],['exam','📊 段考成績'],['print','🖨 列印與核章'],['admin','🗂 後台管理']];
+const NAV=[['design','① 評量試卷分析'],['resp','② 作答登錄'],['diag','③ 分析診斷'],['remed','④ 補救教學'],['student','⑤ 學習報告與路徑'],['home','🏫 班級總覽'],['lib','📚 教材庫'],['exam','📊 段考成績'],['print','🖨 列印與核章'],['admin','🗂 後台管理']];
 function renderNav(){$('#tabs').innerHTML=NAV.map(([k,v])=>`<button data-act="tab" data-tab="${k}" class="${ui.tab===k?'on':''}">${v}${k==='admin'?`<span class="badge" style="background:#5a6bd0">${DB.history.length}</span>`:''}</button>`).join('')}
 function renderHeader(){
   const c=C();$('#hSchool').textContent=DB.settings.school;
@@ -1789,20 +1789,20 @@ function cycleState(p,c){
   let need=0,groups=0,done=0,tot=0;
   if(entered){const D=diagnose(p,c);need=D.SD.filter(x=>x.level!=='精熟').length;const G=D.MS.filter(x=>x.per.length);groups=G.length;
     G.forEach(g=>g.per.forEach(x=>{tot++;if(remedStatus(p,c,g.m.id,x.s.id)==='通過')done++}))}
-  const st=[{k:'design',l:'試卷分析',ok:p.items.length>0&&mapped>0,warn:p.items.length&&!mapped?'尚未設定迷失對應':bad?`命題檢核 ${bad} 項需修正`:''},
-    {k:'resp',l:'作答登錄',ok:entered>0,info:entered?`${entered}/${c.students.length} 人`:''},
-    {k:'diag',l:'分析診斷',ok:entered>0,info:entered?`需扶助 ${need} 人`:''},
-    {k:'remed',l:'補救教學',ok:tot>0&&done===tot,info:tot?`${done}/${tot} 通過`:entered?'無迷思分組':''},
-    {k:'student',l:'學習路徑',ok:entered>0&&tot>0&&done===tot}];
+  const st=[{k:'design',l:'① 試卷分析',ok:p.items.length>0&&mapped>0,warn:p.items.length&&!mapped?'尚未設定迷失對應':bad?`命題檢核 ${bad} 項需修正`:''},
+    {k:'resp',l:'② 作答登錄',ok:entered>0,info:entered?`${entered}/${c.students.length} 人`:''},
+    {k:'diag',l:'③ 分析診斷',ok:entered>0,info:entered?`需扶助 ${need} 人`:''},
+    {k:'remed',l:'④ 補救教學',ok:tot>0&&done===tot,info:tot?`${done}/${tot} 通過`:entered?'無迷思分組':''},
+    {k:'student',l:'⑤ 學習路徑',ok:entered>0&&tot>0&&done===tot}];
   let next;if(!p.items.length)next=['design','上傳試卷進行分析'];else if(!mapped)next=['design','設定各題的概念與迷失對應'];else if(!entered)next=['resp','登錄學生作答'];else if(tot&&done<tot)next=['remed',`進行補救教學（尚有 ${tot-done} 人次未通過）`];else next=['student','檢視學生學習報告與路徑'];
   return{st,next,entered,need,groups,done,tot,mapped};
 }
 function ctxBar(p){
-  const c=C(),cs=p?cycleState(p,c):null;
-  return `<div class="card ctx"><div class="spread" style="margin-bottom:${p?8:0}px"><div class="row"><b>目前評量</b>${DB.papers.length?`<select id="paperSel" class="inp">${DB.papers.map(x=>`<option value="${x.id}" ${p&&x.id===p.id?'selected':''}>${esc(x.title||'（未命名）')}｜${esc(x.kind||'')}</option>`).join('')}</select>`:'<span class="flat">尚無評量</span>'}
+  const c=C(),cs=p?cycleState(p,c):{st:[['design','① 試卷分析'],['resp','② 作答登錄'],['diag','③ 分析診斷'],['remed','④ 補救教學'],['student','⑤ 學習路徑']].map(([k,l])=>({k,l})),next:['design','新增評量並上傳試卷進行分析']};
+  return `<div class="card ctx"><div class="spread" style="margin-bottom:8px"><div class="row"><b>目前評量</b>${DB.papers.length?`<select id="paperSel" class="inp">${DB.papers.map(x=>`<option value="${x.id}" ${p&&x.id===p.id?'selected':''}>${esc(x.title||'（未命名）')}｜${esc(x.kind||'')}</option>`).join('')}</select>`:'<span class="flat">尚無評量</span>'}
    <span class="flat" style="font-size:13px">對象班級：<b>${esc(c.name)}</b></span></div>
    <div class="row"><button class="btn sm primary" data-act="newpaper">＋ 新增評量</button>${p?'<button class="btn sm" data-act="duppaper">複製</button><button class="btn sm danger" data-act="delpaper">刪除</button>':''}</div></div>
-   ${p?`<div class="cycle">${cs.st.map((s,i)=>`${i?'<span class="arr">→</span>':''}<button class="cy ${ui.tab===s.k?'on':''} ${s.ok?'done':''}" data-act="tab" data-tab="${s.k}"><span>${s.l}</span>${s.info?`<small>${esc(s.info)}</small>`:''}${s.warn?`<small class="down">${esc(s.warn)}</small>`:''}</button>`).join('')}
+   ${cs?`<div class="cycle">${cs.st.map((s,i)=>`${i?'<span class="arr">→</span>':''}<button class="cy ${ui.tab===s.k?'on':''} ${s.ok?'done':''}" data-act="tab" data-tab="${s.k}"><span>${s.l}</span>${s.info?`<small>${esc(s.info)}</small>`:''}${s.warn?`<small class="down">${esc(s.warn)}</small>`:''}</button>`).join('')}
    <span class="nextstep">下一步：<a href="#" data-act="tab" data-tab="${cs.next[0]}">${esc(cs.next[1])} ›</a></span></div>`:''}</div>`;
 }
 
@@ -2667,7 +2667,7 @@ function renderRespTab(){
   if(ui.respMode==='ai'){$('#p-resp').innerHTML=ctxBar(p)+chooser+aiBodyHTML();return}
   if(!p){$('#p-resp').innerHTML=ctxBar(p)+chooser+noPaper();return}
   if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+'<div class="card"><p class="flat">這份評量尚未建立題目。請至「📝 評量試卷分析」建立，或使用「影像辨識閱卷（AI）」由答案卷建立。</p></div>';return}
-  if(!c.students.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+`<div class="card"><p class="flat">班級「${esc(c.name)}」尚無學生名單。</p></div>`;return}
+  if(!c.students.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+`<div class="card"><h2>建立學生名單</h2><p class="flat">試卷分析已完成。登錄作答前，請先建立班級「${esc(c.name)}」的學生名單（可用座號或代號）。</p><div class="row"><button class="btn primary" data-act="add">＋ 新增學生</button><button class="btn" data-act="tab" data-tab="admin">到後台管理匯入名單或新增班級</button></div></div>`;return}
   const R=respOf(p,c),pend=pendingCount(R);
   const body=ui.respMode==='quick'?respQuickHTML(p,c):ui.respMode==='import'?respImportHTML(p,c):ui.respMode==='grid'?paperRespHTML(p):ui.respMode==='choice'?respChoiceHTML(p,c):respItemHTML(p,c);
   $('#p-resp').innerHTML=ctxBar(p)+chooser+(pend&&ui.respMode!=='import'?`<div class="banner"><span>待確認作答 <b>${pend}</b> 筆（目前暫採系統或 AI 判定）。</span><button class="btn sm warn" data-act="respmode" data-v="import">檢視待確認</button></div>`:'')+body;
@@ -2815,7 +2815,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act="cloud
   if(b.dataset.act==='cloudsync'){clearTimeout(_cT);_cT=null;cloudSync().then(()=>{toast(cloud.state==='ok'?'已同步':'同步失敗：'+cloud.msg);if(ui.tab==='admin')renderAdmin()})}else cloudPull(true)},true);
 setTimeout(cloudInit,0);
 
-load();ensure();renderHeader();go('home');webNote();
+load();ensure();renderHeader();go('design');webNote();
 </script>
 </body>
 </html>
