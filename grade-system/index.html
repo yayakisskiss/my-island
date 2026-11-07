@@ -1760,7 +1760,7 @@ function addDemo(){
 
 /* ================= v4 畫面 ================= */
 Object.assign(ui,{tab:'home',examTab:'entry',dtab:'edit',diagTab:'now',libTab:'mis',libSubj:'',sid:null,srSel:'all',srTeacher:false});
-const NAV=[['home','🏠 班級總覽'],['lib','📚 教材庫'],['design','📝 評量設計'],['resp','✍ 作答登錄'],['diag','🔍 分析診斷'],['remed','🩹 補救教學'],['student','👤 學習報告與路徑'],['exam','📊 段考成績'],['print','🖨 列印與核章'],['admin','🗂 後台管理']];
+const NAV=[['home','🏠 班級總覽'],['lib','📚 教材庫'],['design','📝 評量試卷分析'],['resp','✍ 作答登錄'],['diag','🔍 分析診斷'],['remed','🩹 補救教學'],['student','👤 學習報告與路徑'],['exam','📊 段考成績'],['print','🖨 列印與核章'],['admin','🗂 後台管理']];
 function renderNav(){$('#tabs').innerHTML=NAV.map(([k,v])=>`<button data-act="tab" data-tab="${k}" class="${ui.tab===k?'on':''}">${v}${k==='admin'?`<span class="badge" style="background:#5a6bd0">${DB.history.length}</span>`:''}</button>`).join('')}
 function renderHeader(){
   const c=C();$('#hSchool').textContent=DB.settings.school;
@@ -1789,12 +1789,12 @@ function cycleState(p,c){
   let need=0,groups=0,done=0,tot=0;
   if(entered){const D=diagnose(p,c);need=D.SD.filter(x=>x.level!=='精熟').length;const G=D.MS.filter(x=>x.per.length);groups=G.length;
     G.forEach(g=>g.per.forEach(x=>{tot++;if(remedStatus(p,c,g.m.id,x.s.id)==='通過')done++}))}
-  const st=[{k:'design',l:'評量設計',ok:p.items.length>0&&mapped>0,warn:p.items.length&&!mapped?'尚未設定迷失對應':bad?`命題檢核 ${bad} 項需修正`:''},
+  const st=[{k:'design',l:'試卷分析',ok:p.items.length>0&&mapped>0,warn:p.items.length&&!mapped?'尚未設定迷失對應':bad?`命題檢核 ${bad} 項需修正`:''},
     {k:'resp',l:'作答登錄',ok:entered>0,info:entered?`${entered}/${c.students.length} 人`:''},
     {k:'diag',l:'分析診斷',ok:entered>0,info:entered?`需扶助 ${need} 人`:''},
     {k:'remed',l:'補救教學',ok:tot>0&&done===tot,info:tot?`${done}/${tot} 通過`:entered?'無迷思分組':''},
     {k:'student',l:'學習路徑',ok:entered>0&&tot>0&&done===tot}];
-  let next;if(!p.items.length)next=['design','建立題目'];else if(!mapped)next=['design','設定各題的概念與迷失對應'];else if(!entered)next=['resp','登錄學生作答'];else if(tot&&done<tot)next=['remed',`進行補救教學（尚有 ${tot-done} 人次未通過）`];else next=['student','檢視學生學習報告與路徑'];
+  let next;if(!p.items.length)next=['design','上傳試卷進行分析'];else if(!mapped)next=['design','設定各題的概念與迷失對應'];else if(!entered)next=['resp','登錄學生作答'];else if(tot&&done<tot)next=['remed',`進行補救教學（尚有 ${tot-done} 人次未通過）`];else next=['student','檢視學生學習報告與路徑'];
   return{st,next,entered,need,groups,done,tot,mapped};
 }
 function ctxBar(p){
@@ -1826,11 +1826,11 @@ function renderHome(){
    <div class="kpi"><div class="l">差異化分組</div><div class="v" style="font-size:22px"><span style="color:${TIERS.A.c}">A ${tiers.A.length}</span>｜<span style="color:${TIERS.B.c}">B ${tiers.B.length}</span>｜<span style="color:${TIERS.C.c}">C ${tiers.C.length}</span></div><div class="d">基礎重建｜加強精進｜精熟延伸</div></div>
    <div class="kpi"><div class="l">尚待破解的迷失概念</div><div class="v" style="color:#5a35a8">${Object.keys(actMis).length} <small>種</small></div><div class="d">${Object.values(actMis).reduce((a,x)=>a+x.s.length,0)} 人次</div></div>
    <div class="kpi"><div class="l">個人學習路徑完成度</div><div class="v">${nodes.length?Math.round(nd/nodes.length*100):0}%</div><div class="meter"><i style="width:${nodes.length?nd/nodes.length*100:0}%"></i></div></div></div>`:''}
-  <div class="card"><h2>評量循環進度</h2><p class="hint">每份評量在「設計 → 作答 → 診斷 → 補救 → 路徑」走到哪裡，點「下一步」直接前往。</p>
-   ${DB.papers.length?`<div class="tw"><table class="t"><thead><tr><th class="l">評量</th><th>類型</th><th>日期</th>${['評量設計','作答登錄','分析診斷','補救教學'].map(x=>`<th>${x}</th>`).join('')}<th class="l">下一步</th></tr></thead><tbody>
+  <div class="card"><h2>評量循環進度</h2><p class="hint">每份評量在「試卷分析 → 作答 → 診斷 → 補救 → 路徑」走到哪裡，點「下一步」直接前往。</p>
+   ${DB.papers.length?`<div class="tw"><table class="t"><thead><tr><th class="l">評量</th><th>類型</th><th>日期</th>${['試卷分析','作答登錄','分析診斷','補救教學'].map(x=>`<th>${x}</th>`).join('')}<th class="l">下一步</th></tr></thead><tbody>
    ${DB.papers.map(p=>{const cs=cycleState(p,c);return `<tr><td class="l"><b>${esc(p.title)}</b><div class="flat" style="font-size:12px">${p.items.length} 題</div></td><td>${kindTag(p.kind)}</td><td style="font-size:13px">${esc(p.adate||'—')}</td>
     ${cs.st.slice(0,4).map(s=>`<td>${s.ok?'<b class="up">✓</b>':'<span class="flat">○</span>'}<div style="font-size:11.5px" class="${s.warn?'down':'flat'}">${esc(s.warn||s.info||'')}</div></td>`).join('')}
-    <td class="l"><a href="#" data-act="gopaper" data-id="${p.id}" data-tab="${cs.next[0]}">${esc(cs.next[1])} ›</a></td></tr>`}).join('')}</tbody></table></div>`:'<p class="flat">還沒有評量。到「📝 評量設計」新增第一份。</p>'}</div>
+    <td class="l"><a href="#" data-act="gopaper" data-id="${p.id}" data-tab="${cs.next[0]}">${esc(cs.next[1])} ›</a></td></tr>`}).join('')}</tbody></table></div>`:'<p class="flat">還沒有評量。到「📝 評量試卷分析」新增第一份。</p>'}</div>
   ${EV.PS.length?`
   <div class="card"><h2>全班概念精熟熱度圖</h2><p class="hint">每格為該生在「最近一次評量到這個概念」的得分率：<span class="hm" style="background:#cdeedd">≥80%</span> <span class="hm" style="background:#fbe8b8">60–79%</span> <span class="hm" style="background:#f7c9c9">&lt;60%</span>。▲▼ 為與前一次相比。點學生姓名看個人學習報告與路徑。</p>
    <div class="tw"><table class="t heat"><thead><tr><th>座號</th><th class="l">學生</th><th>分組</th>${concepts.map(k=>`<th title="${esc(k)}"><div class="vh">${esc(k)}</div></th>`).join('')}<th>路徑進度</th></tr></thead><tbody>
@@ -1863,7 +1863,7 @@ function renderLib(){
     <td style="white-space:nowrap"><button class="btn sm" data-act="editcon" data-id="${k.id}">編輯</button> <button class="btn sm danger" data-act="delcon" data-id="${k.id}">刪除</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="flat">尚無概念。</p>'}`;
   }else{
     const L=DB.lib.miscons.filter(f);
-    body=`<div class="spread"><p class="hint" style="margin:0">每個迷失概念附一份補救教材（成因、策略、教學步驟、練習題、後測題），全校共用、跨試卷與跨年度重複使用。到「📝 評量設計」按各題的「迷失對應」連結錯誤選項。</p><div class="row"><button class="btn green" data-act="mislib">📚 從內建範例庫加入</button><button class="btn primary" data-act="newmis">＋ 新增迷失概念</button></div></div>
+    body=`<div class="spread"><p class="hint" style="margin:0">每個迷失概念附一份補救教材（成因、策略、教學步驟、練習題、後測題），全校共用、跨試卷與跨年度重複使用。到「📝 評量試卷分析」按各題的「迷失對應」連結錯誤選項。</p><div class="row"><button class="btn green" data-act="mislib">📚 從內建範例庫加入</button><button class="btn primary" data-act="newmis">＋ 新增迷失概念</button></div></div>
     ${L.length?`<div class="tw"><table class="t"><thead><tr><th>代碼</th><th class="l">迷失概念</th><th class="l">對應概念</th><th>科目</th><th>教材完整度</th><th>對應試題數</th><th>操作</th></tr></thead><tbody>
     ${L.map(m=>{const comp=[m.desc,m.strategy,m.steps.length,m.practice.length,m.check.length].filter(Boolean).length,u=misUseAll(m.id);return `<tr><td><b>${esc(m.code)}</b></td><td class="l"><b>${esc(m.name)}</b><div class="flat" style="font-size:12.5px;max-width:380px">${esc(m.desc)}</div></td><td class="l" style="font-size:13px">${esc(m.concept)}</td><td style="font-size:13px">${esc(m.subject)}</td><td><span class="${comp===5?'up':'down'}">${comp}/5</span></td><td>${u||'<span class="flat">0</span>'}</td>
     <td style="white-space:nowrap"><button class="btn sm" data-act="editmis" data-id="${m.id}">編輯教材</button> <button class="btn sm" data-act="aiprompt" data-id="${m.id}">AI</button> <button class="btn sm danger" data-act="delmis" data-id="${m.id}">刪除</button></td></tr>`}).join('')}</tbody></table></div>`:'<p class="flat">尚無迷失概念。可從內建範例庫加入（數學 13 種、國語 6 種），或自行新增後用 AI 提示詞協助產生教材。</p>'}`;
@@ -2218,7 +2218,7 @@ function misShort(p,it,code){const id=it.mis[code];const m=id&&p.miscons.find(x=
 /* ---------- 作答登錄分頁 ---------- */
 function renderRespTab(){
   const p=P();if(!p){$('#p-resp').innerHTML=ctxBar(p)+noPaper();return}
-  const c=C();if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+'<div class="card"><p class="flat">請先在「📝 評量設計」建立題目。</p></div>';return}
+  const c=C();if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+'<div class="card"><p class="flat">請先在「📝 評量試卷分析」建立題目。</p></div>';return}
   if(!c.students.length){$('#p-resp').innerHTML=ctxBar(p)+`<div class="card"><p class="flat">目前班級「${esc(c.name)}」沒有學生。</p></div>`;return}
   const R=respOf(p,c),pend=pendingCount(R);
   const modes=[['item','① 逐題批改登錄'],['quick','② 快速錯題輸入'],['import',`③ 匯入電子作答${pend?`（待確認 ${pend}）`:''}`],['grid','④ 總表檢視']];
@@ -2465,22 +2465,24 @@ async function aiReadKey(){
     for(let ci=0;ci<chunks.length;ci++){
       A.keyStatus=`AI 正在讀取答案卷（${ci+1}／${chunks.length}）…通常需要 30～90 秒`;renderAI();
       A.ctl=new AbortController();
-      const r=await _sample.json(`你是台灣國中小教師的閱卷助理。以下 ${chunks[ci].length} 張圖片是一份考卷的「正確答案卷」（教師版或標準答案）${chunks.length>1?`的第 ${ci+1} 部分`:''}。請讀出每一個需要學生作答的小題。
+      const r=await _sample.json(`你是台灣國中小教師的閱卷助理。以下 ${chunks[ci].length} 張圖片是一份考卷（可能是題目卷，或附有答案的教師版／答案卷）${chunks.length>1?`的第 ${ci+1} 部分`:''}。請讀出每一個需要學生作答的小題，並為試卷分析標註各題屬性。
 只回傳一個 JSON 物件，格式：
-{"title":"試卷名稱（看不到就空字串）","subject":"科目","grade":"年級","items":[{"sec":"大題名稱，例如：一、選擇題","no":"題號","type":"選擇題|是非題|填充題|計算題|應用題|造句|簡答題|作圖題|閱讀測驗|寫作|其他","sum":"題目摘要，15 字以內","answer":"正確答案","score":配分數字或null,"concept":"概念","cog":"記憶|了解|應用|分析|評鑑|創造","diff":"易|中|難","lit":true或false,"rubric":["2：…","1：…","0：…"]}]}
+{"title":"試卷名稱（看不到就空字串）","subject":"科目","grade":"年級","units":["命題範圍的單元名稱"],"items":[{"sec":"大題名稱，例如：一、選擇題","no":"題號","type":"選擇題|是非題|填充題|計算題|應用題|造句|簡答題|作圖題|閱讀測驗|寫作|其他","sum":"題目摘要，15 字以內","unit":"所屬單元","answer":"正確答案","answerFrom":"卷面|推測","score":配分數字或null,"concept":"概念","cog":"記憶|了解|應用|分析|評鑑|創造","know":"事實|概念|程序|後設認知","diff":"易|中|難","lit":true或false,"rubric":["2：…","1：…","0：…"]}]}
 規則：
 1. 題號：大題用國字，小題寫「大題-小題」，例如 一-1、二-3；有子題用括號，例如 七-4(2)。同一題號不要重複。
 2. 選擇題的 answer 只寫選項字母（A～E；若考卷用①②③④，依序換成 A、B、C、D）。是非題寫 O 或 X。填充題寫答案，有多種可接受寫法時用「／」分隔。造句、簡答、寫作寫參考答案，並在 rubric 寫 2～4 個評分等級；其他題型 rubric 給空陣列。
-3. score 依卷面標示的配分；看不到就填 null。
+3. score 依卷面標示的配分；看不到就填 null。answer：卷面有標示答案就照抄，answerFrom 填「卷面」；沒有就依題意作答，answerFrom 填「推測」。
+3-1. units 依卷首命題範圍或題目內容判斷（例如「第一單元」或單元名稱）；每題 unit 必須是 units 其中之一，判斷不出來就填「未分單元」。cog 依修訂版布魯姆認知歷程、know 依知識向度、diff 依國中小學生程度判斷。
 4. concept 從這份清單挑最接近的一個：${cons.join('、')||'（清單為空）'}；都不適合就自擬 4～10 字的概念名稱。
 5. lit：題目是否以生活情境呈現（素養導向）。
 6. 只輸出 JSON，不要其他文字。`,{images:await pageImages(chunks[ci],false),signal:A.ctl.signal,modelTier:'default'});
       if(r&&Array.isArray(r.items)){items=items.concat(r.items);if(!meta.title)meta=r}
     }
-    if(!items.length)throw new Error('沒有讀到任何題目，請確認上傳的是答案卷');
+    if(!items.length)throw new Error('沒有讀到任何題目，請確認上傳的是試卷');
     const seen=new Set();A.keyItems=items.filter(x=>{const k=String(x.no||'').trim();if(!k||seen.has(k))return false;seen.add(k);return true});
     A.keyMeta=meta;A.keyStatus='';
-  }catch(e){A.keyStatus='⚠ '+aiErr(e)}
+    if(A.auto){A.auto=false;A.ctl=null;A.keyBusy=false;{const cur=P();if(cur&&!cur.items.length){DB.papers=DB.papers.filter(x=>x!==cur)}}aiCreatePaper(false);ui.dtab='report';go('design');return}
+  }catch(e){A.keyStatus='⚠ '+aiErr(e);A.auto=false}
   A.ctl=null;A.keyBusy=false;renderAI();
 }
 function aiCreatePaper(replace){
@@ -2488,15 +2490,15 @@ function aiCreatePaper(replace){
   const items=raw.map(x=>{const type=QTYPES.includes(x.type)?x.type:(x.type==='其他'?'填充題':x.type||'填充題');let sc=num(x.score);if(sc==null){sc=1;noScore++}
     const ans=String(x.answer??'').trim(),choice=type==='選擇題';let key=choice?((ans.match(/[A-Ea-e]/)||[''])[0].toUpperCase()):'';
     if(type==='是非題'){key=''}
-    return{id:uid(),sec:String(x.sec||'').trim(),no:String(x.no).trim(),type,sum:String(x.sum||'').trim(),unit:'',concept:String(x.concept||'').trim(),cog:COG.includes(x.cog)?x.cog:'',know:'',diff:DIFF.includes(x.diff)?x.diff:'',score:sc,lit:!!x.lit,key,ans:choice?'':ans,ansAlt:[],wrong:{},rubric:Array.isArray(x.rubric)?x.rubric.map(String).filter(Boolean):[],mis:{}}});
+    return{id:uid(),sec:String(x.sec||'').trim(),no:String(x.no).trim(),type,sum:String(x.sum||'').trim(),unit:String(x.unit||'').trim(),concept:String(x.concept||'').trim(),cog:COG.includes(x.cog)?x.cog:'',know:KNOW.includes(x.know)?x.know:'',diff:DIFF.includes(x.diff)?x.diff:'',score:sc,lit:!!x.lit,key,ans:choice?'':ans,ansAlt:[],wrong:{},rubric:Array.isArray(x.rubric)?x.rubric.map(String).filter(Boolean):[],mis:{},ansGuess:x.answerFrom==='推測'}});
   const total=items.reduce((a,b)=>a+(num(b.score)||0),0);
   let p;
   if(replace&&P()){p=P();snapshot('paper','AI 取代題目前自動備份');p.items=items;p.total=total}
-  else{p=blankPaper();delete p.miscons;Object.assign(p,{title:M.title||(A.keyFiles&&A.keyFiles[0]?A.keyFiles[0].name.replace(/\.[^.]+$/,''):'新評量'),subject:M.subject||'',grade:M.grade||'',kind:'單元評量',adate:new Date().toISOString().slice(0,10),units:['未分單元'],items,total});
-    items.forEach(it=>it.unit='未分單元');DB.papers.push(p)}
+  else{p=blankPaper();delete p.miscons;Object.assign(p,{title:M.title||(A.keyFiles&&A.keyFiles[0]?A.keyFiles[0].name.replace(/\.[^.]+$/,''):'新評量'),subject:M.subject||'',grade:M.grade||'',kind:'單元評量',exam:'',date:(()=>{const d=new Date();return `${d.getFullYear()-1911}年${d.getMonth()+1}月${d.getDate()}日`})(),adate:new Date().toISOString().slice(0,10),units:[],items,total});DB.papers.push(p)}
+  {const U=(Array.isArray(M.units)?M.units.map(x=>String(x).trim()).filter(Boolean):[]);items.forEach(it=>{if(!it.unit)it.unit=U[0]||'未分單元';if(!U.includes(it.unit))U.push(it.unit)});p.units=U.length?U:['未分單元']}
   DB.curPaper=p.id;items.forEach(it=>ensureConcept(it.concept,p.subject,p.grade));
-  A.keyItems=null;A.keyMeta=null;A.keyFiles=null;save();renderAI();
-  toast(`已建立 ${items.length} 題${noScore?`（有 ${noScore} 題沒讀到配分，暫以 1 分計，可到「評量設計」修改）`:''}`);
+  A.keyItems=null;A.keyMeta=null;A.keyFiles=null;const guess=items.filter(it=>it.ansGuess).length;save();renderAI();
+  toast(`已建立 ${items.length} 題${noScore?`；${noScore} 題未標示配分，暫以 1 分計`:''}${guess?`；${guess} 題答案為系統推測，請於題目明細確認`:''}`);
 }
 
 /* ---------- 步驟 2：學生考卷 → 作答 ---------- */
@@ -2664,7 +2666,7 @@ function renderRespTab(){
    <div class="methods">${RESP_METHODS.map(([k,t,d])=>`<button class="method ${ui.respMode===k?'on':''}" data-act="respmode" data-v="${k}"><b>${t}</b><span>${d}</span></button>`).join('')}</div></div>`;
   if(ui.respMode==='ai'){$('#p-resp').innerHTML=ctxBar(p)+chooser+aiBodyHTML();return}
   if(!p){$('#p-resp').innerHTML=ctxBar(p)+chooser+noPaper();return}
-  if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+'<div class="card"><p class="flat">這份評量尚未建立題目。請至「📝 評量設計」建立，或使用「影像辨識閱卷（AI）」由答案卷建立。</p></div>';return}
+  if(!p.items.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+'<div class="card"><p class="flat">這份評量尚未建立題目。請至「📝 評量試卷分析」建立，或使用「影像辨識閱卷（AI）」由答案卷建立。</p></div>';return}
   if(!c.students.length){$('#p-resp').innerHTML=ctxBar(p)+chooser+`<div class="card"><p class="flat">班級「${esc(c.name)}」尚無學生名單。</p></div>`;return}
   const R=respOf(p,c),pend=pendingCount(R);
   const body=ui.respMode==='quick'?respQuickHTML(p,c):ui.respMode==='import'?respImportHTML(p,c):ui.respMode==='grid'?paperRespHTML(p):ui.respMode==='choice'?respChoiceHTML(p,c):respItemHTML(p,c);
@@ -2674,7 +2676,7 @@ function renderRespTab(){
 function choiceStr(p,R,s,ch){const row=R.data[s.id]||{};return ch.map(it=>{const v=row[it.id];return v?(v==='x'?'-':v.toUpperCase()):(R.blankOk?it.key.toUpperCase():'-')}).join('')}
 function respChoiceHTML(p,c){
   const R=respOf(p,c),ch=p.items.filter(it=>it.key);
-  if(!ch.length)return '<div class="card"><p class="flat">這份評量沒有設定正確選項的選擇題。請在「📝 評量設計」的「答案」欄填入選擇題正確選項。</p></div>';
+  if(!ch.length)return '<div class="card"><p class="flat">這份評量沒有設定正確選項的選擇題。請在「📝 評量試卷分析」的「答案」欄填入選擇題正確選項。</p></div>';
   return `<div class="card"><h2>選擇題作答串登錄</h2><p class="hint">依下列題序輸入每位學生選擇的選項，共 ${ch.length} 題。可輸入 A～E 或 1～5（對應 A～E）；未作答以「-」表示；空白與逗號會自動忽略。輸入完成按 Enter 至下一位。非選擇題不受影響。</p>
    <div class="keyrow">${ch.map((it,i)=>`<span><small>${i+1}</small>${esc(it.no)}<b>${esc(it.key)}</b></span>`).join('')}</div>
    <div class="tw" style="margin-top:10px"><table class="t" style="min-width:0"><thead><tr><th>座號</th><th class="l">姓名</th><th class="l" style="width:42%">作答串</th><th>答對</th><th class="l">錯誤題號（所選選項）</th></tr></thead><tbody>
@@ -2694,6 +2696,34 @@ document.addEventListener('change',e=>{const t=e.target;if(!t.classList||!t.clas
 },true);
 document.addEventListener('keydown',e=>{const t=e.target;if(!t.classList||!t.classList.contains('cs')||e.key!=='Enter')return;e.preventDefault();
   const all=[...document.querySelectorAll('input.cs')],nx=all[all.indexOf(t)+1];t.dispatchEvent(new Event('change',{bubbles:true}));if(nx){nx.focus();nx.select()}},true);
+
+/* ================= v8 📝 評量試卷分析：上傳試卷即分析 ================= */
+function renderAI(){if(ui.tab==='resp'&&ui.respMode==='ai')renderRespTab();else if(ui.tab==='design')renderDesign()}
+function designUploadHTML(p){
+  const A=ui.ai,has=p&&p.items.length;
+  if(!_sampleReady)return `<div class="card"><p class="flat" style="margin:0">正在確認試卷判讀功能…</p></div>`;
+  if(!_sample)return `<div class="card ${has?'':'aihero'}"><h2>上傳試卷分析</h2><p class="hint" style="margin:0">上傳試卷 PDF 自動分析須於 Claude 網頁版使用（需登入 Claude，使用者本人額度）。<a href="${ARTIFACT_URL}" target="_blank" rel="noopener">開啟 Claude 網頁版</a>。目前版本可於「題目明細與對應設定」以 Excel 貼上或匯入題目後，產生試卷分析報告。</p></div>`;
+  const file=`<label class="btn"><input type="file" id="aiKeyFile" accept="application/pdf,image/*" multiple hidden>📄 選擇試卷檔案</label><span class="flat" style="font-size:13px">${A.keyFiles?A.keyFiles.map(f=>esc(f.name)).join('、'):'尚未選擇'}</span>
+    <button class="btn primary" data-act="aianalyze" ${A.keyFiles&&!A.keyBusy?'':'disabled'}>開始分析</button>${A.keyBusy?'<button class="btn danger" data-act="aistopkey">停止</button>':''}`;
+  const st=A.keyStatus?`<p class="${A.keyStatus.startsWith('⚠')?'down':'flat'}" style="margin:8px 0 0">${esc(A.keyStatus)}</p>`:'';
+  if(has)return `<div class="card" style="padding:12px 16px"><div class="row"><b>上傳新試卷</b>${file}</div>${st}</div>`;
+  return `<div class="card aihero"><h2>上傳試卷分析</h2><p class="hint">上傳試卷 PDF 或影像檔（題目卷或附答案的教師版皆可），系統將判讀各題的題型、配分、教材內容、對應概念、認知歷程、知識向度與難度，並產生試卷分析報告：題型與認知分布、雙向細目表、命題品質檢核與修題建議。分析結果會建立為一份評量，可接續進行作答登錄與診斷。</p>
+   <div class="row">${file}</div>${st}
+   <p class="hint" style="margin:10px 0 0">判讀約需 30～90 秒，使用 Claude 網頁版使用者本人的額度。題目屬性由 AI 判斷，正式使用前請於「題目明細與對應設定」檢視調整。</p></div>`;
+}
+function renderDesign(){
+  const p=P(),up=designUploadHTML(p);
+  if(!p||!p.items.length){$('#p-design').innerHTML=ctxBar(p)+up+(p?'':'')+(p&&!_sample?paperEditHTML(p):'');return}
+  const guess=p.items.filter(it=>it.ansGuess).length;
+  $('#p-design').innerHTML=ctxBar(p)+up+`<div class="card" style="padding:12px 16px"><div class="spread" style="margin:0">${subtabs(ui.dtab,'dtab',[['report','試卷分析報告'],['edit','題目明細與對應設定']])}
+   <div class="row"><label class="flat" style="font-size:13px">評量類型</label><select class="inp" data-pf="kind">${opt(KINDS,p.kind)}</select><label class="flat" style="font-size:13px">施測日期</label><input type="date" class="inp" data-pf="adate" value="${esc(p.adate)}"></div></div>
+   ${guess?`<div class="banner" style="margin:10px 0 0"><span>${guess} 題的正確答案由系統依題意推測（卷面未標示），用於作答判讀前請於「題目明細與對應設定」確認。</span><button class="btn sm" data-act="dtab" data-v="edit">檢視題目明細</button></div>`:''}</div>`
+   +(ui.dtab==='edit'?paperEditHTML(p):paperReportHTML(p));
+}
+ui.dtab='report';
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="aianalyze"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();ui.ai.auto=true;aiReadKey()},true);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="saveitemmis"]');if(!b)return;const p=P(),it=p&&p.items[ui.itemIdx];if(it)it.ansGuess=false},true);
+document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.pi!=null&&(t.dataset.f==='key')){const it=P().items[+t.dataset.pi];if(it)it.ansGuess=false}},true);
 
 load();ensure();renderHeader();go('home');webNote();
 </script>
