@@ -2537,7 +2537,7 @@ async function gradeOne(j,p,c){
 任務：讀出學生在每一題寫的答案，依正確答案給分，並判斷答錯背後最可能的迷失概念。
 題目與正確答案：${JSON.stringify(items)}
 迷失概念清單（mis 只能填這裡的 id，沒有適合的填 null）：${JSON.stringify(mis)}
-只回傳一個 JSON 物件：{"seat":"考卷上的座號（看不到填空字串）","name":"考卷上的姓名（看不到填空字串）","answers":[{"no":"題號","read":"學生寫的答案，照抄；選擇題只寫選項字母；空白寫空字串","score":得分,"mis":"迷失概念 id 或 null","sure":true或false}]}
+只回傳一個 JSON 物件：{"seat":"考卷上的座號（看不到填空字串）",${deidOn()?'':'"name":"考卷上的姓名（看不到填空字串）",'}"answers":[{"no":"題號","read":"學生寫的答案，照抄；選擇題只寫選項字母；空白寫空字串","score":得分,"mis":"迷失概念 id 或 null","sure":true或false}]}
 規則：
 1. 每一題都要列出，順序與題目清單相同。
 2. 完全正確給滿分；錯誤給 0；造句、簡答依參考答案與 rubric 給分；填充題意思相同的寫法（全形半形、國字數字）視為正確。
@@ -2600,7 +2600,7 @@ function aiBodyHTML(){
     <div class="row" style="margin-top:10px">${A.running?`<button class="btn danger" data-act="aistop">⏸ 停止</button><span class="flat">AI 判讀中，每份約需 30～90 秒；處理期間請勿關閉頁面。</span>`:(()=>{const left=A.jobs.filter(j=>j.status!=='done').length;return left?`<button class="btn primary" data-act="aigrade" ${p&&p.items.length?'':'disabled'}>開始 AI 判讀（${left} 份）</button><span class="flat" style="font-size:13px">預估約 ${Math.max(1,Math.round(left*0.5))}～${Math.max(2,Math.round(left*0.9))} 分鐘</span>`:`<span class="up">✓ ${A.jobs.length} 份已判讀完成。可由下拉選單修正作答卷與學生的對應。</span>`})()}</div>
     ${A.jobs.length?`<div class="meter" style="margin-top:10px"><i style="width:${A.jobs.length?done/A.jobs.length*100:0}%"></i></div><div class="jobs">${A.jobs.map(j=>{const s=j.sid&&c.students.find(x=>x.id===j.sid);const R=p?respOf(p,c):null;const sc=s&&R?p.items.reduce((a,x)=>a+evalCell(x,(R.data[s.id]||{})[x.id],R.blankOk).s,0):null;
       return `<div class="job ${j.status}"><span class="jn">第 ${j.i+1} 份</span><span class="flat" style="font-size:12px">${j.pages.length} 頁</span>
-      ${j.status==='done'?`<select class="inp jobSel" data-j="${j.i}">${studs.map(x=>`<option value="${x.id}" ${x.id===j.sid?'selected':''}>${x.seat} ${esc(x.name)}</option>`).join('')}</select><b>${fmt(sc)} 分</b>${j.res&&(j.res.seat||j.res.name)?`<span class="flat" style="font-size:12px">卷面：${esc(j.res.seat||'')} ${esc(j.res.name||'')}</span>`:''}`
+      ${j.status==='done'?`<select class="inp jobSel" data-j="${j.i}">${studs.map(x=>`<option value="${x.id}" ${x.id===j.sid?'selected':''}>${x.seat} ${esc(x.name)}</option>`).join('')}</select><b>${fmt(sc)} 分</b>${j.res&&(j.res.seat||j.res.name)?`<span class="flat" style="font-size:12px">卷面：${esc(j.res.seat||'')} ${deidOn()?'':esc(j.res.name||'')}</span>`:''}`
        :j.status==='run'?'<span>⏳ 批改中…</span>':j.status==='err'?`<span class="down">✗ ${esc(j.err)}</span>`:'<span class="flat">等待中</span>'}</div>`}).join('')}</div>`:''}`:''}</div>`;
   const step3=`<div class="card ${done?'':'dim'}"><div class="aistep"><span class="num">3</span><div style="flex:1"><h2>確認判讀結果</h2><p class="hint" style="margin:0">AI 無法確定的作答（字跡不清或給分有疑義）列為「待確認」，由教師確認；其餘作答已完成計分與迷失概念標記。</p></div></div>
    <div class="row" style="margin-top:10px">${pend?`<button class="btn warn" data-act="gopend">✍ 待確認 ${pend} 筆</button>`:done?'<span class="up">✓ 沒有待確認的答案</span>':''}
@@ -2814,6 +2814,103 @@ renderAdmin=function(){_raBase();if(ui.admin!=='io')return;const box=$('#p-admin
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act="cloudsync"],[data-act="cloudpull"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
   if(b.dataset.act==='cloudsync'){clearTimeout(_cT);_cT=null;cloudSync().then(()=>{toast(cloud.state==='ok'?'已同步':'同步失敗：'+cloud.msg);if(ui.tab==='admin')renderAdmin()})}else cloudPull(true)},true);
 setTimeout(cloudInit,0);
+
+/* ================= v10 學生個資保護：去識別模式 ================= */
+const NKEY='gradeTracker.names';
+const deidOn=()=>DB.settings.deid!==false;
+const phName=s=>`${s.seat}號`;
+const isPh=s=>!s.name||s.name===phName(s);
+function nameMap(){try{return JSON.parse(localStorage.getItem(NKEY)||'{}')||{}}catch(e){return{}}}
+function setNameMap(m){try{localStorage.setItem(NKEY,JSON.stringify(m))}catch(e){}}
+function rememberNames(){const m=nameMap();let ch=false;
+  DB.classes.forEach(c=>c.students.forEach(s=>{if(!isPh(s)&&m[s.id]!==s.name){m[s.id]=s.name;ch=true}}));if(ch)setNameMap(m)}
+function walkStudents(o,fn){if(!o||typeof o!=='object')return;if(Array.isArray(o)){o.forEach(x=>walkStudents(x,fn));return}
+  if('seat' in o&&'name' in o&&('s1' in o||'type' in o))fn(o);for(const k in o)if(o[k]&&typeof o[k]==='object')walkStudents(o[k],fn)}
+function restoreNames(){const m=nameMap();const fix=s=>{if(isPh(s)&&m[s.id])s.name=m[s.id]};
+  DB.classes.forEach(c=>c.students.forEach(fix));(DB.history||[]).forEach(h=>walkStudents(h.data,fix))}
+function missingNames(){let n=0;DB.classes.forEach(c=>c.students.forEach(s=>{if(isPh(s))n++}));return n}
+function maskCfg(){const d={on:true,all:false,t:0,h:15,l:0,w:100};DB.settings.mask=Object.assign(d,DB.settings.mask||{});return DB.settings.mask}
+
+/* 雲端：學生姓名一律以座號代替 */
+const _cdDeid=cloudDocs;
+cloudDocs=function(){rememberNames();const m=_cdDeid();if(!deidOn())return m;
+  Object.keys(m).forEach(k=>{if(k==='meta')return;const o=JSON.parse(m[k]);let hit=false;walkStudents(o,s=>{if(s.name!==phName(s)){s.name=phName(s);hit=true}});if(hit)m[k]=JSON.stringify(o)});return m};
+const _apDeid=applyCloud;
+applyCloud=function(docs){rememberNames();_apDeid(docs);restoreNames();localSave();if(deidOn()&&missingNames())setTimeout(()=>toast(`這台裝置有 ${missingNames()} 位學生尚無姓名，暫以座號顯示；可到「後台管理 → 匯入匯出」匯入姓名對照表`),2600)};
+const _svDeid=save;
+save=function(){rememberNames();_svDeid()};
+
+/* AI：不讀姓名；送出前遮蓋姓名區域 */
+function maskCanvas(cv){const M=maskCfg(),c=document.createElement('canvas');c.width=cv.width;c.height=cv.height;const x=c.getContext('2d');x.drawImage(cv,0,0);
+  x.fillStyle='#fff';x.fillRect(cv.width*M.l/100,cv.height*M.t/100,cv.width*M.w/100,cv.height*M.h/100);return c}
+const _piDeid=pageImages;
+pageImages=async function(pages,split){
+  if(ui.ai&&ui.ai.running&&deidOn()&&maskCfg().on)pages=pages.map((p,i)=>(i===0||maskCfg().all)?{...p,cv:maskCanvas(p.cv)}:p);
+  return _piDeid(pages,split)};
+const _agDeid=aiGrade;
+aiGrade=async function(){if(deidOn()&&!maskCfg().on&&!ui.ai.selfMasked){toast('去識別模式：請開啟「自動遮蓋姓名區域」，或勾選已自行遮蓋姓名');return}return _agDeid()};
+function maskBoxHTML(){const M=maskCfg(),A=ui.ai;
+  const num=(id,l,v)=>`<label class="flat" style="font-size:13px">${l}<input id="${id}" class="inp mk" style="width:62px;margin-left:4px" inputmode="numeric" value="${v}">%</label>`;
+  return `<div id="maskBox" style="margin-top:10px;padding:12px;border:1px solid #cfd6f5;background:#f5f7ff;border-radius:10px">
+   <div class="row"><b>🔒 姓名遮蓋（去識別模式）</b><label style="font-size:13.5px"><input type="checkbox" id="mkOn" ${M.on?'checked':''}> 送出前自動遮蓋姓名區域</label></div>
+   ${M.on?`<div class="row" style="margin-top:8px">${num('mkT','上緣',M.t)}${num('mkH','高度',M.h)}${num('mkL','左緣',M.l)}${num('mkW','寬度',M.w)}
+    <select id="mkAll" class="inp"><option value="0" ${M.all?'':'selected'}>遮蓋每份第一頁</option><option value="1" ${M.all?'selected':''}>遮蓋每一頁</option></select></div>
+    ${A.pages&&A.pages.length?`<div class="row" style="margin-top:8px;align-items:flex-start"><canvas id="mkPrev" style="width:240px;border:1px solid #ccd;border-radius:6px;background:#fff"></canvas>
+     <p class="hint" style="margin:0;flex:1;min-width:180px">預覽為第 1 份的第 1 頁，白色區塊就是送給 AI 前會蓋掉的範圍（紅框標示）。請確認姓名已完全蓋住，且沒有蓋到題目或作答。AI 只依座號（檔案順序或卷面座號）對應學生，不會讀取姓名。</p></div>`
+    :'<p class="hint" style="margin:6px 0 0">選擇學生作答卷後，這裡會顯示遮蓋預覽。</p>'}`
+   :`<p class="hint" style="margin:6px 0 0">未使用自動遮蓋時，請在掃描或拍照前先遮住姓名欄。</p><label style="font-size:13.5px"><input type="checkbox" id="mkSelf" ${A.selfMasked?'checked':''}> 我已在掃描前自行遮蓋學生姓名</label>`}</div>`}
+function drawMaskPrev(){const cv=document.getElementById('mkPrev'),A=ui.ai;if(!cv||!A.pages||!A.pages.length)return;const src=maskCanvas(A.pages[0].cv),M=maskCfg();
+  const W=480,sc=W/src.width;cv.width=W;cv.height=Math.round(src.height*sc);const x=cv.getContext('2d');x.drawImage(src,0,0,cv.width,cv.height);
+  x.strokeStyle='#d33';x.lineWidth=2;x.setLineDash([6,4]);x.strokeRect(cv.width*M.l/100,cv.height*M.t/100,cv.width*M.w/100,cv.height*M.h/100)}
+function deidAIPost(){if(!deidOn())return;const f=document.getElementById('aiStuFile');if(!f||document.getElementById('maskBox'))return;
+  f.closest('.row').insertAdjacentHTML('afterend',maskBoxHTML());drawMaskPrev();
+  document.querySelectorAll('#aiOrder option[value="ai"]').forEach(o=>o.textContent='由 AI 讀考卷上的座號');
+  if(!maskCfg().on&&!ui.ai.selfMasked)document.querySelectorAll('[data-act="aigrade"]').forEach(b=>{b.disabled=true;b.insertAdjacentHTML('afterend','<span class="down" style="font-size:13px">請先設定姓名遮蓋</span>')})}
+const _rrtDeid=renderRespTab;
+renderRespTab=function(){_rrtDeid();if(ui.respMode==='ai')deidAIPost()};
+document.addEventListener('input',e=>{const t=e.target;if(!t.classList||!t.classList.contains('mk'))return;const M=maskCfg(),k={mkT:'t',mkH:'h',mkL:'l',mkW:'w'}[t.id];
+  const v=Math.max(0,Math.min(100,Number(t.value)));if(!isNaN(v)&&t.value!==''){M[k]=v;drawMaskPrev();saveSoon()}},true);
+document.addEventListener('change',e=>{const t=e.target,M=maskCfg();let hit=true;
+  if(t.id==='mkOn'){M.on=t.checked;save();renderAI()}else if(t.id==='mkAll'){M.all=t.value==='1';save();drawMaskPrev()}
+  else if(t.id==='mkSelf'){ui.ai.selfMasked=t.checked;renderAI()}
+  else if(t.classList&&t.classList.contains('mk')){}
+  else if(t.id==='nameFile'){const f=t.files&&t.files[0];if(f)f.text().then(x=>importNames(x,true));t.value=''}
+  else hit=false;if(hit){e.stopPropagation();e.stopImmediatePropagation()}},true);
+
+/* 姓名對照表：匯出（存到本機）、匯入 */
+function exportNames(){rememberNames();const rows=[['班級','座號','姓名','識別碼']];DB.classes.forEach(c=>sortedS(c).forEach(s=>rows.push([c.name,s.seat,isPh(s)?'':s.name,s.id])));
+  download(`學生姓名對照表_${new Date().toISOString().slice(0,10)}.csv`,toCSV(rows),'text/csv;charset=utf-8');toast('已下載姓名對照表，請存放在學校規定的安全位置')}
+function importNames(text,file){const lines=String(text).replace(/^﻿/,'').split(/\r?\n/).map(l=>l.split(/\t|,/).map(x=>x.trim().replace(/^"|"$/g,''))).filter(r=>r.some(Boolean));
+  const m=nameMap();let n=0;const c=C();
+  lines.forEach(r=>{if(/座號|姓名|班級/.test(r.join('')))return;let s=null,nm='';
+    if(r.length>=4&&r[3]){for(const k of DB.classes){s=k.students.find(x=>x.id===r[3]);if(s)break}nm=r[2]}
+    if(!s&&r.length>=3&&!/^\d+$/.test(r[0])){const k=DB.classes.find(x=>x.name===r[0]);if(k){s=k.students.find(x=>x.seat===parseInt(r[1],10));nm=r[2]}}
+    if(!s&&/^\d+$/.test(r[0])){s=c.students.find(x=>x.seat===parseInt(r[0],10));nm=r[1]}
+    if(s&&nm&&nm!==phName(s)){s.name=nm;m[s.id]=nm;n++}});
+  setNameMap(m);save();closeModal();renderAll();toast(n?`已對應 ${n} 位學生姓名（只存在這台裝置）`:'沒有對應到任何學生，請確認座號或格式')}
+function namePasteModal(){const c=C();openModal(`<h3>貼上姓名對照（${esc(c.name)}）</h3><p class="hint">每行一位：座號、姓名（以 Tab、逗號分隔，可直接從 Excel 複製兩欄貼上）。姓名只存在這台裝置，不會上傳雲端。</p>
+  <textarea id="namePaste" rows="10" class="inp" style="width:100%" placeholder="1	王小明&#10;2	李小華"></textarea><div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="namepasteok">匯入</button></div>`)}
+function deidCardHTML(){const on=deidOn(),miss=missingNames(),tot=DB.classes.reduce((a,c)=>a+c.students.length,0);
+  return `<div class="card" id="deidCard"><h2>🔒 學生個資保護（去識別模式）</h2>
+  <p style="margin:0 0 8px">狀態：${on?'<span class="up">✓ 開啟</span>':'<span class="down">關閉</span>'}</p>
+  ${on?`<ul class="hint" style="margin:0 0 8px;padding-left:20px"><li>雲端存檔中的學生姓名一律以「座號＋號」代替，真實姓名只存在這台裝置的瀏覽器。</li><li>AI 閱卷不讀取姓名，只依座號對應；送出前可自動遮蓋考卷上的姓名區域。</li><li>在這台裝置上，畫面、報告與列印仍顯示真實姓名。</li></ul>
+   <p style="margin:0 0 8px">這台裝置：${tot-miss}／${tot} 位學生有姓名${miss?`，<b class="down">${miss} 位只顯示座號</b>（可匯入姓名對照表補上）`:''}</p>
+   <div class="row"><button class="btn" data-act="nameexport">⬇ 匯出姓名對照表</button><label class="btn"><input type="file" id="nameFile" accept=".csv,.txt,text/csv" hidden>⬆ 匯入姓名對照表</label><button class="btn" data-act="namepaste">📋 貼上座號與姓名</button><button class="btn danger" data-act="deidoff">關閉去識別模式</button></div>
+   <p class="hint" style="margin:8px 0 0">換電腦時：在原電腦「匯出姓名對照表」，以隨身碟或學校規定的方式帶到新電腦後「匯入」。姓名對照表含學生個資，請勿上傳到雲端或 AI。</p>`
+  :`<p class="hint">目前學生姓名會隨雲端存檔上傳到 Claude 帳號。依教育部「中小學使用生成式人工智慧注意事項」，不宜以個人帳號處理學生資料，建議開啟。</p><button class="btn primary" data-act="deidon">開啟去識別模式</button>`}</div>`}
+const _raDeid=renderAdmin;
+renderAdmin=function(){_raDeid();if(ui.admin!=='io')return;const box=$('#p-admin .subtabs');if(box)box.insertAdjacentHTML('afterend',deidCardHTML())};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
+  const H={nameexport:exportNames,namepaste:namePasteModal,namepasteok:()=>importNames($('#namePaste').value,false),
+    deidon:()=>{DB.settings.deid=true;save();renderAdmin();toast('已開啟去識別模式，雲端姓名將改為座號');if(_cdb)cloudSync()},
+    deidoff:()=>openModal(`<h3>關閉去識別模式？</h3><p>關閉後，學生真實姓名會隨雲端存檔上傳到你的 Claude 帳號，AI 閱卷也會讀取卷面姓名。依教育部注意事項，不宜以個人帳號處理學生資料，請先確認學校規定。</p><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">取消</button><button class="btn danger" data-act="deidoff2">確認關閉</button></div>`),
+    deidoff2:()=>{DB.settings.deid=false;save();closeModal();renderAdmin();toast('已關閉去識別模式')}};
+  if(H[a]){e.stopPropagation();e.stopImmediatePropagation();H[a]()}},true);
+
+/* 標頭提示 */
+const _rhDeid=renderHeader;
+renderHeader=function(){_rhDeid();const el=$('#hSub');if(el&&deidOn()&&typeof cloud!=='undefined'&&cloud.state==='ok')el.textContent+='（姓名僅存本機）'};
+setTimeout(()=>{restoreNames()},0);
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
