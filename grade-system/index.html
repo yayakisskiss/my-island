@@ -2725,6 +2725,96 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act="aiana
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act="saveitemmis"]');if(!b)return;const p=P(),it=p&&p.items[ui.itemIdx];if(it)it.ansGuess=false},true);
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.pi!=null&&(t.dataset.f==='key')){const it=P().items[+t.dataset.pi];if(it)it.ansGuess=false}},true);
 
+/* ================= v9 Claude 帳號雲端存檔（個人私人資料區，跨裝置同步） ================= */
+let _cdb=null,_cuid=null,_csynced={},_cT=null,_cBusy=false,_cAgain=false;
+const cloud={state:'off',msg:'',last:null,big:[]};
+const cref=k=>_cdb.collection('data/users/'+_cuid).doc(k);
+const withTimeout=(pr,ms)=>Promise.race([pr,new Promise((_,rej)=>setTimeout(()=>rej({code:'timeout',message:'連線逾時'}),ms))]);
+function cloudErr(e){const c=e&&e.code;return c==='invalid_argument'?'此帳號沒有寫入權限（可能是以「檢視者」身分開啟），資料僅存在此瀏覽器':c==='quota_exceeded'?'雲端空間已滿，請到「後台管理 → 歷程紀錄」刪除部分舊紀錄':c==='resource_exhausted'?'同步太頻繁，稍後會再試':c==='revoked'?'雲端存取權已變更':c==='timeout'?'連線逾時':(e&&e.message)||'無法連線'}
+function cloudDocs(){
+  const m={};
+  DB.classes.forEach(c=>m['class-'+c.id]=c);
+  DB.papers.forEach(p=>m['paper-'+p.id]=p);
+  (DB.history||[]).forEach(h=>m['hist-'+h.id]=h);
+  m.meta={ver:DB.ver||2,settings:DB.settings,lib:DB.lib,progress:DB.progress||{},cur:DB.cur,curPaper:DB.curPaper||null,classOrder:DB.classes.map(c=>c.id),paperOrder:DB.papers.map(p=>p.id),savedAt:DB.savedAt||new Date().toISOString()};
+  const out={};Object.entries(m).forEach(([k,v])=>out[k]=JSON.stringify(v));return out;
+}
+function applyCloud(docs){
+  const M=docs.meta,byKey=pre=>Object.keys(docs).filter(k=>k.startsWith(pre)).map(k=>docs[k]);
+  const order=(arr,ids)=>arr.sort((a,b)=>{const i=ids.indexOf(a.id),j=ids.indexOf(b.id);return(i<0?1e9:i)-(j<0?1e9:j)});
+  DB={ver:M.ver||2,settings:M.settings,lib:M.lib,progress:M.progress||{},classes:order(byKey('class-'),M.classOrder||[]),papers:order(byKey('paper-'),M.paperOrder||[]),
+    history:byKey('hist-').sort((a,b)=>String(b.time).localeCompare(String(a.time))),cur:M.cur,curPaper:M.curPaper,savedAt:M.savedAt};
+  ensure();localSave();
+}
+function localSave(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}}
+function markSynced(docs){_csynced={};Object.entries(docs).forEach(([k,v])=>_csynced[k]=JSON.stringify(v))}
+async function cloudLoadAll(){const snap=await withTimeout(_cdb.collection('data/users/'+_cuid).limit(1000).get(),20000);const docs={};snap.docs.forEach(d=>{if(d.exists)docs[d.id]=JSON.parse(JSON.stringify(d.data()))});return docs}
+async function cloudInit(){
+  try{
+    if(!(window.claude&&typeof window.claude.use==='function'))return;
+    const [db,user]=await Promise.all([window.claude.use('db'),window.claude.use('user')]);if(!db||!user)return;
+    const id=await user.id();if(!id)return;_cdb=db;_cuid=id;cloud.state='loading';renderHeader();
+    const docs=await cloudLoadAll();
+    if(docs.meta){
+      const cloudAt=String(docs.meta.savedAt||''),localAt=String(DB.savedAt||'');
+      if(!DB.savedAt||cloudAt>=localAt){applyCloud(docs);markSynced(docs);cloud.state='ok';cloud.last=new Date();renderAll();toast('已載入你 Claude 帳號中的資料')}
+      else{ // 本機較新：保留本機，並把雲端獨有的班級／評量／紀錄併回來
+        const have=new Set(Object.keys(cloudDocs()));let added=0;
+        Object.keys(docs).forEach(k=>{if(have.has(k)||k==='meta')return;const v=docs[k];
+          if(k.startsWith('class-')){DB.classes.push(v);added++}else if(k.startsWith('paper-')){DB.papers.push(v);added++}else if(k.startsWith('hist-')){DB.history.push(v);added++}});
+        if(added){DB.history.sort((a,b)=>String(b.time).localeCompare(String(a.time)));ensure();localSave();renderAll()}
+        markSynced(docs);cloud.state='ok';await cloudSync();
+      }
+    }else{_csynced={};cloud.state='ok';await cloudSync();if(cloud.state==='ok')toast('已將資料存到你的 Claude 帳號，之後在其他電腦登入即可使用')}
+  }catch(e){cloud.state='err';cloud.msg=cloudErr(e)}
+  renderHeader();updateWebNote();if(ui.tab==='admin')renderAdmin();
+}
+function cloudSoon(){if(!_cdb||cloud.state==='perm')return;clearTimeout(_cT);_cT=setTimeout(cloudSync,1500)}
+async function cloudSync(){
+  _cT=null;if(!_cdb||cloud.state==='perm')return;if(_cBusy){_cAgain=true;return}_cBusy=true;cloud.state='saving';renderHeader();
+  try{
+    const cur=cloudDocs();cloud.big=[];
+    for(const k of Object.keys(cur)){if(k==='meta'||_csynced[k]===cur[k])continue;
+      if(cur[k].length>250000){cloud.big.push(k);continue}
+      await withTimeout(cref(k).set(JSON.parse(cur[k])),20000);_csynced[k]=cur[k]}
+    for(const k of Object.keys(_csynced)){if(k!=='meta'&&!(k in cur)){await withTimeout(cref(k).delete(),20000);delete _csynced[k]}}
+    if(_csynced.meta!==cur.meta){await withTimeout(cref('meta').set(JSON.parse(cur.meta)),20000);_csynced.meta=cur.meta}
+    cloud.state='ok';cloud.msg=cloud.big.length?`有 ${cloud.big.length} 筆資料過大（超過 250 KB）未上傳雲端`:'';cloud.last=new Date();
+  }catch(e){cloud.state=e&&e.code==='invalid_argument'?'perm':'err';cloud.msg=cloudErr(e)}
+  _cBusy=false;renderHeader();if(_cAgain){_cAgain=false;cloudSync()}
+}
+async function cloudPull(manual){
+  if(!_cdb||_cBusy)return;
+  try{const m=await withTimeout(cref('meta').get(),15000);if(!m.exists){if(manual)toast('雲端目前沒有資料');return}
+    const at=String(m.data().savedAt||'');
+    if(manual||at>String(DB.savedAt||'')){clearTimeout(_cT);const docs=await cloudLoadAll();applyCloud(docs);markSynced(docs);cloud.state='ok';cloud.last=new Date();renderAll();toast(manual?'已從雲端重新載入':'已更新為其他裝置的最新資料')}
+  }catch(e){if(manual)toast('無法讀取雲端：'+cloudErr(e))}
+}
+function save(){
+  ensure();DB.savedAt=new Date().toISOString();
+  try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){if(!_storeWarned&&!_cdb){_storeWarned=true;toast('⚠ 無法儲存到瀏覽器，請記得「完整備份」')}}
+  renderHeader();cloudSoon();
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&_cdb&&!_cBusy&&!_cT)cloudPull(false)});
+window.addEventListener('focus',()=>{if(_cdb&&!_cBusy)setTimeout(()=>{if(!_cBusy)cloudPull(false)},300)});
+const _rhBase=renderHeader;
+renderHeader=function(){_rhBase();const el=$('#hSub');if(!el)return;
+  const t=cloud.last?cloud.last.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}):'';
+  const s=cloud.state==='ok'?`☁ 已同步到 Claude 帳號${t?' '+t:''}`:cloud.state==='saving'?'☁ 同步中…':cloud.state==='loading'?'☁ 讀取雲端資料中…':cloud.state==='err'?'⚠ 雲端同步失敗，資料暫存於此瀏覽器':cloud.state==='perm'?'本機儲存（此帳號無雲端寫入權限）':'';
+  if(s)el.textContent=el.textContent.replace(/ · [^·]*自動存檔（本機）$/,'').replace(/ · 示範資料$/,'')+' · '+s;
+};
+function updateWebNote(){const d=document.getElementById('webNote');if(!d||cloud.state!=='ok')return;
+  d.innerHTML='<b>雲端存檔已啟用</b>：資料存在你 Claude 帳號的私人空間，只有你看得到；在其他電腦或 Claude App 登入後開啟此頁，即可看到相同資料。<button class="btn sm" style="margin-left:8px" onclick="this.parentNode.remove()">知道了</button>';}
+const _raBase=renderAdmin;
+renderAdmin=function(){_raBase();if(ui.admin!=='io')return;const box=$('#p-admin .subtabs');if(!box)return;
+  const st=cloud.state==='ok'?`<span class="up">✓ 已啟用</span>　最後同步：${cloud.last?tstr(cloud.last.toISOString()):'—'}`:cloud.state==='saving'?'同步中…':cloud.state==='loading'?'讀取中…':cloud.state==='err'||cloud.state==='perm'?`<span class="down">${esc(cloud.msg)}</span>`:'<span class="flat">未啟用（需在 Claude 網頁版或 App 登入後開啟此頁）</span>';
+  box.insertAdjacentHTML('afterend',`<div class="card"><h2>☁ Claude 帳號雲端存檔</h2><p class="hint">在 Claude 網頁版或 App 登入後開啟此頁，所有班級、評量、作答、補救與歷程紀錄會自動存到你帳號的私人空間（只有你看得到），換電腦登入即可接續使用。每次修改約 2 秒內同步；回到此頁時會自動取得其他裝置的最新資料。</p>
+   <p style="margin:0 0 8px">狀態：${st}${cloud.big.length?`<br><span class="down">${esc(cloud.msg)}</span>`:''}</p>
+   ${_cdb?'<div class="row"><button class="btn primary" data-act="cloudsync">立即同步</button><button class="btn" data-act="cloudpull">從雲端重新載入</button></div>':''}</div>`)};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="cloudsync"],[data-act="cloudpull"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
+  if(b.dataset.act==='cloudsync'){clearTimeout(_cT);_cT=null;cloudSync().then(()=>{toast(cloud.state==='ok'?'已同步':'同步失敗：'+cloud.msg);if(ui.tab==='admin')renderAdmin()})}else cloudPull(true)},true);
+setTimeout(cloudInit,0);
+
 load();ensure();renderHeader();go('home');webNote();
 </script>
 </body>
