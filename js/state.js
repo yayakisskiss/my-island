@@ -18,8 +18,8 @@ export const Settings = {
   set(k, v) { this.data[k] = v; safeSet('settings', this.data); }
 };
 
-function emptySave(name, style) {
-  return { v: 2, name, style: style || 0, visited: [], correct: {}, best: {}, stamps: [], at: 'center', traded: [], found: [], finalPassed: false, finalBest: 0 };
+function emptySave(name, style, student) {
+  return { v: 3, name, style: style || 0, student: student || null, minutes: 0, visited: [], correct: {}, best: {}, stamps: [], at: 'center', traded: [], found: [], finalPassed: false, finalBest: 0 };
 }
 
 export class GameState {
@@ -39,10 +39,10 @@ export class GameState {
   get hasAdventurer() { return !!this.save; }
   get profileKey() { return this.profiles.current || 'guest'; }
 
-  createAdventurer(name, style) {
+  createAdventurer(name, style, student) {
     name = (name || '').trim();
-    if (!this.profiles.saves[name]) this.profiles.saves[name] = emptySave(name, style);
-    else this.profiles.saves[name].style = style;
+    if (!this.profiles.saves[name]) this.profiles.saves[name] = emptySave(name, style, student);
+    else { this.profiles.saves[name].style = style; if (student) this.profiles.saves[name].student = student; }
     this.profiles.current = name;
     this.persist();
     this.emit('profile');
@@ -150,7 +150,7 @@ export class GameState {
   challengeOpen(islandId) { return this.foundOn(islandId).done >= Math.min(this.rules.challengeNeed || 0, this.foundOn(islandId).total); }
   resetCurrent() {
     const s = this.save; if (!s) return;
-    this.profiles.saves[s.name] = emptySave(s.name, s.style);
+    this.profiles.saves[s.name] = emptySave(s.name, s.style, s.student);
     this.persist();
     safeDel('course.' + s.name); safeDel('bag.' + s.name);
     this.emit('profile'); this.emit('change'); this.emit('bag');
@@ -167,8 +167,8 @@ export class GameState {
   clearCourse() {
     safeDel('course.' + this.profileKey);
     if (this.save) {
-      const s = this.save; const keep = { name: s.name, style: s.style };
-      this.profiles.saves[s.name] = emptySave(keep.name, keep.style);
+      const s = this.save; const keep = { name: s.name, style: s.style, student: s.student };
+      this.profiles.saves[s.name] = emptySave(keep.name, keep.style, keep.student);
       this.persist();
     }
     this.emit('change'); this.emit('profile');
@@ -231,6 +231,9 @@ export class GameState {
     clean.found = (data.found || []).filter(id => dIds.has(id));
     clean.finalPassed = !!data.finalPassed;
     clean.finalBest = Number.isFinite(data.finalBest) ? Math.max(0, Math.min(5, data.finalBest)) : 0;
+    clean.minutes = Number.isFinite(data.minutes) ? Math.max(0, Math.min(100000, Math.floor(data.minutes))) : 0;
+    const st = data.student;
+    if (st && typeof st.cls === 'string' && /^[A-Za-z0-9-]{1,12}$/.test(st.cls) && Number.isInteger(st.seat) && st.seat >= 1 && st.seat <= 99) clean.student = { cls: st.cls, seat: st.seat };
     return clean;
   }
   allResidentIds() {

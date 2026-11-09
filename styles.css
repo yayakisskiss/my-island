@@ -205,7 +205,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 15px; }
 .ws-item label { font-weight: 700; display: block; margin-bottom: 4px; }
 ::placeholder { color: var(--muted); opacity: .85; }
 textarea { width: 100%; min-height: 84px; border-radius: 12px; border: 2px solid var(--line); background: var(--bg); padding: 8px 10px; resize: vertical; }
-input[type="text"], input[type="search"] { width: 100%; min-height: 44px; border-radius: 12px; border: 2px solid var(--line); background: var(--bg); padding: 6px 12px; }
+input[type="text"], input[type="search"], input[type="number"] { width: 100%; min-height: 44px; border-radius: 12px; border: 2px solid var(--line); background: var(--bg); padding: 6px 12px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .note { font-size: 13px; color: var(--muted); }
 .tag-self { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 15%, transparent); padding: 1px 8px; border-radius: 8px; }
@@ -437,3 +437,21 @@ body.fp-mode.card-open #app::after, body.fp-mode.cinema #app::after { display: n
   .inscribe .col.ttl { font-size: 22px; }
   .sound-chip { top: auto; bottom: calc(132px + var(--hud-h, 58px) + var(--safe-b)); font-size: 15px; white-space: nowrap; padding: 8px 14px; }
 }
+
+/* ---------- 第 4 版：學生登入與學習紀錄 ---------- */
+.login-seg { display: flex; gap: 6px; margin: 4px 0 10px; flex-wrap: wrap; }
+.login-seg button { font: inherit; font-weight: 700; min-height: 44px; padding: 6px 14px; border-radius: 12px; border: 2px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.login-seg button[aria-selected="true"] { background: var(--accent); border-color: var(--accent-dark); color: var(--on-accent, #fff); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+.grid2 input { width: 100%; }
+.hud .seat { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--surface-2); border-radius: 6px; padding: 0 5px; }
+.sync-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: inherit; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; min-height: 26px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; vertical-align: middle; }
+.sync-chip.ok { border-color: var(--accent); color: var(--accent-ink); }
+.sync-chip.err { border-color: #b3261e; color: #b3261e; }
+.sync-chip.local { color: var(--muted); }
+.site-footer .teacher-link { color: inherit; font-weight: 700; white-space: nowrap; }
+
+/* 第一人稱：畫面外的探索點貼在邊緣，箭頭指向它 */
+.spot.edge { opacity: .9; }
+.spot.edge::before { content: ''; position: absolute; left: 50%; top: 50%; width: 0; height: 0; border-left: 9px solid #f3c64b; border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+  transform: rotate(var(--ang, 0rad)) translate(30px, -50%); transform-origin: 0 0; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }

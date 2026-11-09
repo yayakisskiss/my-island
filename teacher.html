@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>教師後台｜詩兩首</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏝️%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="teacher/teacher.css">
+</head>
+<body>
+<a class="skip" href="#main">跳到主要內容</a>
+<header class="t-head">
+  <div class="brand"><span aria-hidden="true">👩‍🏫</span><div><h1>教師後台</h1><p id="t-sub">詩兩首・學生學習紀錄</p></div></div>
+  <nav><a class="btn ghost" href="./">🏝️ 回到島嶼</a></nav>
+</header>
+
+<main id="main">
+  <!-- 登入 -->
+  <section class="panel" id="login" aria-labelledby="login-h">
+    <h2 id="login-h">讀取全班紀錄</h2>
+    <p class="note">學生的紀錄存在<strong>您自己的 Google 試算表</strong>。第一次使用請先看「設定說明」（約 10 分鐘，只要做一次）。</p>
+    <form id="login-form" class="form-grid">
+      <label for="ep">紀錄表網址（Apps Script 網路應用程式網址）</label>
+      <input id="ep" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/……/exec">
+      <label for="pw">教師密碼</label>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="在試算表「① 設定班級代碼與教師密碼」設定的密碼">
+      <label class="chk"><input type="checkbox" id="remember"> 在這個分頁記住密碼（關掉分頁就會忘記）</label>
+      <p class="err" id="login-err" role="alert"></p>
+      <div class="row">
+        <button class="btn" type="submit" id="login-go">🔓 讀取紀錄</button>
+        <button class="btn alt" type="button" id="demo">👀 先看示範資料</button>
+        <button class="btn ghost" type="button" data-goto="setup">📘 設定說明</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 後台 -->
+  <section id="dash" hidden>
+    <div class="toolbar">
+      <div class="row">
+        <label for="cls-pick" class="inline">班級</label>
+        <select id="cls-pick"></select>
+        <label for="cls-size" class="inline">全班人數</label>
+        <input id="cls-size" type="number" min="1" max="99" inputmode="numeric" style="width:5.5em">
+        <button class="btn sm" type="button" id="reload">🔄 重新整理</button>
+        <button class="btn sm ghost" type="button" id="export">⬇️ 匯出 CSV</button>
+        <button class="btn sm ghost" type="button" id="logout">登出</button>
+      </div>
+      <p class="note" id="loaded-at" aria-live="polite"></p>
+    </div>
+    <p class="demo-flag" id="demo-flag" hidden>⚠️ 這是<strong>示範資料（示意）</strong>，不是真的學生紀錄。</p>
+    <div class="tabs" role="tablist" aria-label="後台頁面">
+      <button role="tab" aria-selected="true" data-tab="overview">📊 全班總覽</button>
+      <button role="tab" aria-selected="false" data-tab="items">🧩 題目分析</button>
+      <button role="tab" aria-selected="false" data-tab="student">🧑‍🎓 個別學生</button>
+      <button role="tab" aria-selected="false" data-tab="ws">📝 學習單</button>
+      <button role="tab" aria-selected="false" data-tab="link">🔗 班級連結</button>
+    </div>
+    <div id="view" class="panel" role="tabpanel"></div>
+  </section>
+
+  <!-- 設定說明 -->
+  <section class="panel" id="setup" aria-labelledby="setup-h">
+    <h2 id="setup-h">📘 設定說明（只要做一次，約 10 分鐘）</h2>
+    <p class="note">需要一個 Google 帳號（學校的 Google Workspace 帳號或個人帳號都可以）。學生<strong>不需要</strong> Google 帳號。網站裡不會放任何密碼或金鑰，資料只存在您的試算表。</p>
+    <ol class="steps">
+      <li><strong>建立試算表</strong>：打開 <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a> 建立一份空白試算表，命名為「詩兩首 學習紀錄」。</li>
+      <li><strong>貼上程式碼</strong>：選單「擴充功能 → Apps Script」，把編輯器裡原本的內容全部刪掉，貼上下方程式碼，按 💾 儲存。
+        <div class="row"><button class="btn sm" type="button" id="copy-code">📋 複製程式碼</button><a class="btn sm ghost" href="teacher/apps-script.gs" download="詩兩首-學習紀錄.gs">⬇️ 下載程式碼</a></div>
+        <details><summary>看程式碼</summary><pre id="code-view" class="code">載入中…</pre></details></li>
+      <li><strong>設定班級與密碼</strong>：回到試算表、重新整理頁面，選單會多出「🏝️ 島嶼學習紀錄」→「① 設定班級代碼與教師密碼」。第一次會要求授權：選您的帳號 →「進階」→「前往（不安全）」→「允許」。這是您自己寫的程式，只會讀寫這份試算表。</li>
+      <li><strong>部署成網路應用程式</strong>：Apps Script 右上角「部署 → 新增部署作業」→ 齒輪選「網頁應用程式」→ 執行身分「<strong>我</strong>」、具有存取權的使用者「<strong>所有人</strong>」→「部署」→ 複製「網頁應用程式網址」（結尾是 <code>/exec</code>）。</li>
+      <li><strong>貼回這裡</strong>：把網址貼到上面的「紀錄表網址」，輸入教師密碼，按「讀取紀錄」。</li>
+      <li><strong>發給學生</strong>：在後台的「🔗 班級連結」複製連結或投影 QR Code。學生用這個連結打開網站，輸入班級代碼、座號、名字，紀錄就會自動上傳。</li>
+    </ol>
+    <p class="note">之後如果修改程式碼，請用「部署 → 管理部署作業 → ✏️ 編輯 → 版本：新版本」更新，網址才不會改變。紀錄表網址請只給自己班的學生，不要公開張貼。</p>
+  </section>
+</main>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="js/vendor/qrcode.js"></script>
+<script type="module" src="teacher/teacher.js"></script>
+</body>
+</html>

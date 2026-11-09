@@ -1,5 +1,6 @@
 import { GameState, Settings, shuffle } from './state.js';
 import { Sound } from './audio.js';
+import { Sync, readClassLink, validEndpoint } from './sync.js';
 import { $, $$, esc, h, toast, download, copyText, sampleBadge, today, avatarSvg, STYLE_NAMES, STYLE_ICONS } from './ui.js';
 
 const PHASE = { day: ['☀️', '白天'], dusk: ['🌇', '黃昏'], night: ['🌙', '夜晚'] };
@@ -30,6 +31,9 @@ async function boot() {
   }
   app.content = content;
   app.state = new GameState(content);
+  readClassLink();
+  app.sync = new Sync(app);
+  app.sync.on(renderSyncChip);
   app.islandList = [{ ...content.center, id: 'center', order: 0 }, ...content.islands];
   app.byId = Object.fromEntries(app.islandList.map(i => [i.id, i]));
   if (!Settings.get('v3')) { Settings.set('music', true); Settings.set('sfx', true); if (!(Settings.get('volume') >= .5)) Settings.set('volume', .9); Settings.set('v3', true); }
@@ -132,7 +136,7 @@ function wireWorld() {
     // 第一人稱走進另一座島：換成那座島的情境、聲音與題詩
     if (w.viewMode === 'fp' && (id === 'center' ? null : id) !== app.focus) setFocus(id === 'center' ? null : id);
     const gained = app.state.visit(id);
-    if (gained) toast(`第一次登上「${app.byId[id].name}」 +${app.content.rpgRules.firstVisit} EXP`);
+    if (gained) { toast(`第一次登上「${app.byId[id].name}」 +${app.content.rpgRules.firstVisit} EXP`); app.sync.log({ type: 'visit', island: id, text: app.byId[id].name }); }
     renderHUD();
   };
   w.on.viewMode = () => syncViewButton();
@@ -290,19 +294,48 @@ function renderHUD() {
   const s = app.state, hud = $('#hud');
   const bag = s.bag(); const count = Object.values(bag).reduce((a, b) => a + b, 0);
   if (!s.hasAdventurer) {
-    hud.innerHTML = `<button type="button" class="browse-btn" id="hud-create">🧭 建立冒險者</button>
+    hud.innerHTML = `<button type="button" class="browse-btn" id="hud-create">🧭 登入／建立冒險者</button>
       <button type="button" class="mini" id="hud-bag" aria-label="背包，共 ${count} 件">🎒<em>${count}</em></button>`;
   } else {
     const exp = s.exp(), lv = s.levelOf(exp), [a, b] = s.levelRange(lv);
     const pct = Math.round((exp - a) / (b - a) * 100);
     hud.innerHTML = `<div class="avatar" aria-hidden="true">${STYLE_ICONS[s.save.style] || '🧭'}</div>
-      <div class="meta"><div class="name">${esc(s.save.name)} <span class="lv">Lv ${lv}</span></div>
+      <div class="meta"><div class="name">${s.save.student ? `<span class="seat">${esc(s.save.student.cls)}・${s.save.student.seat}號</span> ` : ''}${esc(s.save.name)} <span class="lv">Lv ${lv}</span></div>
       <div class="expbar" role="progressbar" aria-label="經驗值" aria-valuemin="${a}" aria-valuemax="${b}" aria-valuenow="${exp}"><i style="width:${pct}%"></i></div>
-      <small>EXP ${exp}・島章 ${s.save.stamps.length}/${app.content.islands.length}</small></div>
+      <small>EXP ${exp}・島章 ${s.save.stamps.length}/${app.content.islands.length}</small>${s.save.student ? '<button type="button" class="sync-chip" id="sync-chip"></button>' : ''}</div>
       <button type="button" class="mini" id="hud-bag" aria-label="背包，共 ${count} 件">🎒<em>${count}</em></button>`;
   }
   $('#hud-bag').addEventListener('click', openBag);
   const c = $('#hud-create'); if (c) c.addEventListener('click', openCreate);
+  const sc = $('#sync-chip'); if (sc) { sc.addEventListener('click', openSyncInfo); renderSyncChip(); }
+}
+// 學習紀錄上傳狀態
+function renderSyncChip() {
+  const b = $('#sync-chip'); if (!b || !app.sync) return;
+  const sy = app.sync, n = sy.pending();
+  let icon = '☁️', txt = '紀錄已上傳', cls = 'ok';
+  if (!sy.configured) { icon = '💾'; txt = '紀錄存在這台'; cls = 'local'; }
+  else if (sy.status === 'sending') { icon = '⏫'; txt = '上傳中…'; cls = 'busy'; }
+  else if (sy.status === 'error' || sy.status === 'offline') { icon = '⚠️'; txt = n ? `${n} 筆待上傳` : '稍後重試'; cls = 'err'; }
+  else if (n) { icon = '⏳'; txt = `${n} 筆待上傳`; cls = 'busy'; }
+  b.className = 'sync-chip ' + cls;
+  b.innerHTML = `<span aria-hidden="true">${icon}</span>${txt}`;
+  b.setAttribute('aria-label', `學習紀錄：${txt}，按一下看詳細`);
+}
+function openSyncInfo() {
+  const sy = app.sync, st = app.state.save && app.state.save.student;
+  const when = sy.lastOk ? new Date(sy.lastOk).toLocaleString('zh-TW', { hour12: false }) : '還沒有';
+  openModal('學習紀錄', `
+    ${st ? `<p>登入身分：<strong>${esc(st.cls)} 班・${st.seat} 號・${esc(app.state.save.name)}</strong></p>` : ''}
+    ${sy.configured
+      ? `<p>你的答題、探索、挑戰與學習單，會自動送到老師的紀錄表。</p>
+         <ul class="points"><li>還沒上傳：<strong>${sy.pending()}</strong> 筆</li><li>上次成功上傳：${esc(when)}</li>${sy.lastError ? `<li class="err">${esc(sy.lastError)}</li>` : ''}</ul>
+         <p class="note">沒有網路也可以繼續玩，紀錄會先存在這台裝置，有網路時自動補傳。</p>
+         <div class="row"><button class="btn" type="button" id="sy-now">⏫ 現在上傳</button></div>`
+      : `<p>這台裝置還沒有連上老師的紀錄表，所以學習紀錄只存在這台裝置。</p><p class="note">請用老師給的「班級連結」或 QR Code 打開網站，就會自動連上。</p>`}`, root => {
+    const b = $('#sy-now', root);
+    if (b) b.addEventListener('click', async () => { b.disabled = true; b.textContent = '上傳中…'; await sy.flush(); openSyncInfo(); });
+  });
 }
 function bumpBag() { renderHUD(); const b = $('#hud-bag'); if (b && !app.reduced) { b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); } }
 function onStateEvent(type, d) {
@@ -335,13 +368,17 @@ function openIsland(id, opts = {}) {
   closeBubble();
   const w = app.world;
   closeModal(true);
-  if (!w) { showPanel(id, opts.tab); if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); } return; }
+  if (!w) { showPanel(id, opts.tab); if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) { toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); app.sync.log({ type: 'visit', island: id, text: app.byId[id].name }); } } return; }
   closeCard(true);
   if (!$('#panel').hidden && !opts.tab) { $('#panel').hidden = true; app.panelId = null; w.setViewShift(0, 0); w.inputEnabled = true; }
   if (w.player && app.state.hasAdventurer) {
     w.setFollow(false);
-    w.walkPlayerTo(id, () => { w.setFollow(Settings.get('follow') !== false); });
-  } else if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); }
+    w.walkPlayerTo(id, () => {
+      w.setFollow(Settings.get('follow') !== false);
+      // 第一人稱：走到島上後抬頭看向島的中心（地標與 ✨ 都在那裡）
+      if (w.viewMode === 'fp') { const s = w.islandById[id]; w.fpLookAt = w.player.pos.clone().set(s.x, s.top + 1.2, s.z); w.fpLookHold = 1.6; if (w.reduced) w.snapLook(); }
+    });
+  } else if (app.state.hasAdventurer) { const g = app.state.visit(id); if (g) { toast(`第一次登上「${app.byId[id].name}」 +5 EXP`); app.sync.log({ type: 'visit', island: id, text: app.byId[id].name }); } }
   setFocus(id);
   app.sound.play('open');
   w.flyToIsland(id, () => {
@@ -492,7 +529,7 @@ function renderWorksheet(tp, isl) {
   const c = app.state.course();
   const saved = c.wsSaved.includes(isl.id);
   tp.innerHTML = `
-    <p class="note">寫下你的想法，會自動存成草稿（只存在這台電腦的瀏覽器裡）。${saved ? '<strong>✓ 已存過學習單</strong>' : ''}</p>
+    <p class="note">寫下你的想法，會自動存成草稿。${app.sync && app.sync.student && app.sync.configured ? '按「儲存學習單」後，老師就看得到。' : '（只存在這台電腦的瀏覽器裡）'}${saved ? '<strong>✓ 已存過學習單</strong>' : ''}</p>
     ${isl.worksheet.map((w, i) => `<div class="ws-item"><label for="${w.id}">${i + 1}. ${esc(w.q)}</label><textarea id="${w.id}" data-ws="${w.id}" placeholder="在這裡寫……">${esc(c.ws[w.id] || '')}</textarea></div>`).join('')}
     <div class="row">
       <button class="btn" type="button" id="ws-save">💾 儲存學習單</button>
@@ -510,6 +547,8 @@ function renderWorksheet(tp, isl) {
     collect();
     const empty = $$('textarea[data-ws]', tp).filter(t => !t.value.trim()).length;
     app.state.updateCourse(cc => { if (!cc.wsSaved.includes(isl.id)) cc.wsSaved.push(isl.id); });
+    app.sync.log({ type: 'worksheet', island: isl.id, text: `${isl.name} 學習單`, score: isl.worksheet.length - empty, total: isl.worksheet.length,
+      detail: isl.worksheet.map((w, i) => `${i + 1}. ${w.q}\n→ ${($('#' + w.id, tp).value || '（未作答）').trim()}`).join('\n\n') });
     $('#ws-msg', tp).textContent = empty ? `已儲存（還有 ${empty} 題空白，可以之後再補）。` : '已儲存學習單！';
     toast('學習單已儲存');
   });
@@ -552,12 +591,13 @@ function renderChallengeIntro(tp, isl, inCard) {
       app.state.updateCourse(cc => { cc.quiz[isl.id] = Math.max(cc.quiz[isl.id] || 0, score); });
       const res = app.state.finishChallenge(isl.id, score);
       const pass = score >= r.passCorrect;
+      app.sync.log({ type: 'challenge', island: isl.id, text: `${isl.name} 島主挑戰`, score, total: qs.length, correct: pass });
       if (res && res.stamped) { toast(`🏅 得到「${isl.name}」島章！ +${r.firstClear} EXP`); app.sound.play('stamp'); }
       renderBanner();
       return `<div class="result-box"><p style="font-size:20px"><strong>${score} / ${qs.length}</strong>　${pass ? '🎉 過關！' : '差一點點，再試一次！'}</p>
         ${res && res.stamped ? `<p>🏅 你得到了「${esc(isl.name)}」島章！</p>` : pass && app.state.save ? '<p class="note">這座島的島章已經蓋過了，重玩不會重複蓋章。</p>' : ''}
         ${app.state.centerUnlocked() && res && res.stamped ? '<p>中央島的最終挑戰已經開放了！</p>' : ''}</div>`;
-    }, () => renderChallengeIntro(tp, isl, inCard), inCard ? { onBack: closeCard } : {});
+    }, () => renderChallengeIntro(tp, isl, inCard), Object.assign({ kind: 'challenge' }, inCard ? { onBack: closeCard } : {}));
   });
   const cc = $('#ch-create', tp); if (cc) cc.addEventListener('click', openCreate);
 }
@@ -586,6 +626,9 @@ function runQuiz(tp, questions, onFinish, onAgain, opts = {}) {
     });
     let gain = 0;
     if (correct && app.state.hasAdventurer) gain = app.state.recordAnswer(q.id, true) || 0;
+    const qi = app.questionById[q.id];
+    app.sync.log({ type: 'answer', ctx: opts.kind || 'quiz', island: qi ? qi.island : '', item: q.id, text: q.q,
+      answer: (q.options.find(o => o.id === chosen) || {}).text || '', right: (q.options.find(o => o.id === q.answer) || {}).text || '', correct });
     const last = i === questions.length - 1;
     $('#fb', tp).innerHTML = `<div class="feedback ${correct ? 'ok' : 'no'}"><strong>${correct ? '✅ 答對了！' : '❌ 再想想看'}</strong>${gain ? `<span class="note">（+${gain} EXP）</span>` : ''}
       <p>${esc(q.explain)}</p><button class="btn" type="button" id="next">${last ? '看結果' : '下一題 →'}</button></div>`;
@@ -670,10 +713,12 @@ function renderReview(tp) {
       const ok = v === q.answer;
       if (ok) score++;
       const right = q.options.find(o => o.id === q.answer).text;
+      app.sync.log({ type: 'answer', ctx: 'review', island: app.questionById[q.id].island, item: q.id, text: q.q, answer: v ? q.options.find(o => o.id === v).text : '（缺答）', right, correct: ok });
       el.querySelector('.rv-fb').innerHTML = `<div class="feedback ${ok ? 'ok' : 'no'}"><strong>${!v ? '⚠️ 缺答' : ok ? '✅ 答對' : '❌ 答錯'}</strong>　正確答案：${esc(right)}<p>${esc(q.explain)}</p></div>`;
       $$('input', el).forEach(i => { i.disabled = true; });
     });
     app.state.updateCourse(cc => { cc.review = { best: Math.max(cc.review ? cc.review.best : 0, score), total: qs.length, last: score }; });
+    app.sync.log({ type: 'review', island: 'center', text: '總複習', score, total: qs.length });
     $('#rv-miss', tp).innerHTML = `<span style="color:var(--accent-ink)">總複習成績：${score} / ${qs.length}${missing.length ? `（缺答 ${missing.length} 題）` : ''}</span>`;
     tp.querySelector('button[type="submit"]').disabled = true;
     $('#rv-miss', tp).scrollIntoView({ block: 'center', behavior: app.reduced ? 'auto' : 'smooth' });
@@ -700,11 +745,12 @@ function renderFinal(tp, inCard) {
     runQuiz(tp, qs, score => {
       app.state.finishFinal(score);
       const ok = score >= r.finalPass;
+      app.sync.log({ type: 'final', island: 'center', text: '最終挑戰', score, total: qs.length, correct: ok });
       if (ok) app.sound.play('stamp');
       setTimeout(() => { const b = $('#fn-cert2', tp); if (b) b.addEventListener('click', () => openCertificate()); }, 0);
       return `<div class="result-box"><p style="font-size:20px"><strong>${score} / ${qs.length}</strong>　${ok ? '🎉 通過最終挑戰！' : `需要答對 ${r.finalPass} 題，再挑戰一次吧！`}</p>
         ${ok ? '<button class="btn alt" type="button" id="fn-cert2">📜 領取冒險證書</button>' : ''}</div>`;
-    }, () => renderFinal(tp, inCard), Object.assign({ label: '最終挑戰' }, inCard ? { onBack: closeCard } : {}));
+    }, () => renderFinal(tp, inCard), Object.assign({ label: '最終挑戰', kind: 'final' }, inCard ? { onBack: closeCard } : {}));
   });
   const cb = $('#fn-cert', tp); if (cb) cb.addEventListener('click', () => openCertificate());
 }
@@ -751,40 +797,86 @@ function closeModal(silent) {
 }
 
 function openCreate() {
-  const s = app.state, names = s.profileNames();
-  let style = 0;
-  openModal('建立冒險者', `
+  const s = app.state, names = s.profileNames(), sy = app.sync;
+  let style = 0, mode = (sy.configured || sy.defaultCls) ? 'student' : 'free'; // 從老師的班級連結進來才預設學生登入
+  const label = n => { const st = s.profiles.saves[n].student; return (st ? `${st.cls}・${st.seat}號 ` : '') + n; };
+  openModal('登入', `
     <div class="npc-box"><div class="npc-face"><svg aria-hidden="true"><use href="#mascot"/></svg></div>
       <div><h3>${esc(app.content.mascot.name)} ${sampleBadge(true)}</h3>${app.content.mascot.welcome.map(l => `<p style="margin:2px 0">${esc(l)}</p>`).join('')}</div></div>
-    ${names.length ? `<h3>繼續之前的冒險</h3><div class="row">${names.map(n => `<button class="btn ghost" type="button" data-resume="${esc(n)}">${STYLE_ICONS[s.profiles.saves[n].style] || ''} ${esc(n)}</button>`).join('')}</div><hr>` : ''}
-    <form id="cr-form">
-      <label for="cr-name"><strong>冒險者代號</strong>（2～12 個字，不用寫真實姓名）</label>
-      <input type="text" id="cr-name" maxlength="12" autocomplete="off" required placeholder="例如：山林小旅人">
+    ${names.length ? `<h3>繼續之前的冒險</h3><div class="row">${names.map(n => `<button class="btn ghost" type="button" data-resume="${esc(n)}">${STYLE_ICONS[s.profiles.saves[n].style] || ''} ${esc(label(n))}</button>`).join('')}</div><hr>` : ''}
+    <div class="seg login-seg" role="tablist" aria-label="登入方式">
+      <button type="button" role="tab" aria-selected="true" data-mode="student">👩‍🎓 學生登入</button>
+      <button type="button" role="tab" aria-selected="false" data-mode="free">🧭 用代號自由玩</button>
+    </div>
+    <form id="cr-form" novalidate>
+      <div class="stu-only">
+        <p class="note">${sy.configured ? '登入後，你的答題、探索和學習單會自動送給老師。' : '這台裝置還沒連上老師的紀錄表（請用老師給的班級連結打開）；先登入也沒關係，紀錄會先存著，連上後自動補傳。'}</p>
+        <div class="grid2">
+          <div><label for="cr-cls"><strong>班級代碼</strong></label><input type="text" id="cr-cls" maxlength="12" autocomplete="off" inputmode="text" placeholder="例如：501" value="${esc(sy.defaultCls || '')}"></div>
+          <div><label for="cr-seat"><strong>座號</strong></label><input type="number" id="cr-seat" min="1" max="99" inputmode="numeric" placeholder="例如：12"></div>
+        </div>
+      </div>
+      <label for="cr-name"><strong class="lbl-name">名字</strong> <span class="note lbl-hint">（老師看得到，2～12 個字）</span></label>
+      <input type="text" id="cr-name" maxlength="12" autocomplete="off" required placeholder="例如：王小明">
       <p><strong>選一個造型</strong></p>
       <div class="style-picks" role="radiogroup" aria-label="冒險者造型">${[0, 1, 2].map(i => `<button type="button" class="style-pick" role="radio" aria-checked="${i === 0}" data-style="${i}">${avatarSvg(i)}<span>${STYLE_NAMES[i]}</span></button>`).join('')}</div>
       <p class="err" id="cr-err" aria-live="assertive"></p>
-      <div class="row"><button class="btn" type="submit">🧭 開始冒險</button><button class="btn ghost" type="button" id="cr-browse">先逛逛，不玩</button></div>
+      <div class="row"><button class="btn" type="submit" id="cr-go">🧭 開始冒險</button><button class="btn ghost" type="button" id="cr-browse">先逛逛，不玩</button></div>
     </form>`, root => {
-    $$('[data-resume]', root).forEach(b => b.addEventListener('click', () => { s.switchTo(b.dataset.resume); closeModal(); toast(`歡迎回來，${b.dataset.resume}！`); }));
+    $$('[data-resume]', root).forEach(b => b.addEventListener('click', () => { s.switchTo(b.dataset.resume); closeModal(); toast(`歡迎回來，${b.dataset.resume}！`); app.sync.flushSoon(500); }));
+    const setMode = m => {
+      mode = m;
+      $$('.login-seg [data-mode]', root).forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === m)));
+      $('.stu-only', root).hidden = m !== 'student';
+      $('.lbl-name', root).textContent = m === 'student' ? '名字' : '冒險者代號';
+      $('.lbl-hint', root).textContent = m === 'student' ? '（老師看得到，2～12 個字）' : '（2～12 個字，不用寫真實姓名；紀錄只存在這台裝置）';
+      $('#cr-name', root).placeholder = m === 'student' ? '例如：王小明' : '例如：山林小旅人';
+      $('#cr-err', root).textContent = '';
+    };
+    $$('.login-seg [data-mode]', root).forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+    setMode(mode);
     const picks = $$('.style-pick', root);
     picks.forEach(p => {
       p.addEventListener('click', () => { style = +p.dataset.style; picks.forEach(q => q.setAttribute('aria-checked', String(q === p))); });
       p.addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const n = picks[(+p.dataset.style + (e.key === 'ArrowRight' ? 1 : 2)) % 3]; n.focus(); n.click(); e.preventDefault(); } });
     });
-    $('#cr-form', root).addEventListener('submit', e => {
+    const err = (msg, el) => { $('#cr-err', root).textContent = msg; el && el.focus(); };
+    $('#cr-form', root).addEventListener('submit', async e => {
       e.preventDefault();
-      const name = $('#cr-name', root).value.trim();
-      if (name.length < 2 || name.length > 12) { $('#cr-err', root).textContent = '代號要 2～12 個字喔。'; $('#cr-name', root).focus(); return; }
+      let name = $('#cr-name', root).value.trim().replace(/\s+/g, '');
+      let student = null;
+      if (mode === 'student') {
+        const cls = $('#cr-cls', root).value.trim(), seat = Number($('#cr-seat', root).value);
+        if (!/^[A-Za-z0-9-]{1,12}$/.test(cls)) return err('請輸入老師給的班級代碼（英文或數字，例如 501）。', $('#cr-cls', root));
+        if (!Number.isInteger(seat) || seat < 1 || seat > 99) return err('座號要填 1～99 的數字。', $('#cr-seat', root));
+        student = { cls, seat };
+      }
+      if (name.length < 2 || name.length > 12) return err(mode === 'student' ? '名字要 2～12 個字喔。' : '代號要 2～12 個字喔。', $('#cr-name', root));
+      // 同一台裝置有同名但不同座號的同學：自動加上座號區分
+      const old = s.profiles.saves[name];
+      if (student && old && old.student && (old.student.cls !== student.cls || old.student.seat !== student.seat)) name = `${name.slice(0, 9)}${student.seat}號`;
+      if (student) {
+        const btn = $('#cr-go', root); btn.disabled = true; btn.textContent = '確認班級中…';
+        const chk = await sy.checkClass(student.cls);
+        btn.disabled = false; btn.textContent = '🧭 開始冒險';
+        if (!chk.ok) return err(chk.error, $('#cr-cls', root));
+      }
       const go = () => {
-        s.createAdventurer(name, style);
+        s.createAdventurer(name, style, student);
         Settings.set('browseChosen', true);
         closeModal();
         app.sound.play('levelup');
+        if (student) {
+          try { localStorage.setItem('shi2.classroom', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('shi2.classroom') || '{}'), { cls: student.cls }))); } catch (er) {}
+          sy.defaultCls = student.cls;
+          sy.log({ type: 'login', island: 'center', text: '登入' });
+        }
+        renderHUD();
         toast(`冒險開始！${name}，到島上找找閃閃發亮的 ✨ 吧。`, 3600);
       };
       if (s.profiles.saves[name]) askConfirm(`「${name}」已經有存檔了，要接著玩這個存檔嗎？`, '接著玩').then(ok => ok && go()); else go();
     });
-    $('#cr-browse', root).addEventListener('click', () => { Settings.set('browseChosen', true); s.browseOnly(); closeModal(); toast('先逛逛模式：可以讀完全部內容，想玩時按「建立冒險者」。', 3600); });
+    $('#cr-browse', root).addEventListener('click', () => { Settings.set('browseChosen', true); s.browseOnly(); closeModal(); toast('先逛逛模式：可以讀完全部內容，想玩時按「登入」。', 3600); });
   });
 }
 
@@ -912,6 +1004,9 @@ function openHelp() {
   openModal('怎麼玩', `
     <div class="npc-box"><div class="npc-face"><svg aria-hidden="true"><use href="#mascot"/></svg></div><div><h3>${esc(app.content.mascot.name)}的小提醒 ${sampleBadge(true)}</h3><p>${esc(app.content.mascot.tips[Math.floor(Math.random() * app.content.mascot.tips.length)])}</p></div></div>
     <ul class="points">${app.content.help.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
+    <h3>給老師</h3>
+    <p>學生用「👩‍🎓 學生登入」後，答題、探索、挑戰與學習單會自動送到老師自己的 Google 試算表。第一次使用請看教師後台裡的設定說明。</p>
+    <div class="row"><a class="btn alt" href="teacher.html">👩‍🏫 打開教師後台</a></div>
     <h3>關於這個網站</h3>
     <p>${esc(app.content.site.footer)}</p>
     <p class="note">標有「示意」的人物與對話是補寫內容；題目為依教材改寫的自編練習題。3D 模型、人物與動物都是用程式畫出的原創造型。</p>`);
@@ -1284,6 +1379,7 @@ function showCard(d) {
 }
 function renderTask(box, d) {
   const t = d.task;
+  box._wrong = 0;
   const done = () => discoverySolved(box, d);
   if (t.type === 'order') {
     let next = 0;
@@ -1298,6 +1394,7 @@ function renderTask(box, d) {
         app.sound.play('tick');
         if (next === t.lines.length) done();
       } else {
+        box._wrong++;
         app.sound.play('wrong'); b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
         $('#tfb', box).innerHTML = `<p class="note">順序不對喔，想想第 ${next + 1} 句是哪一句？</p>`;
       }
@@ -1308,7 +1405,7 @@ function renderTask(box, d) {
   $$('.opt', box).forEach(b => b.addEventListener('click', () => {
     if (b.dataset.opt === t.answer) { $$('.opt', box).forEach(x => { x.disabled = true; }); b.classList.add('correct'); done(); }
     else {
-      b.disabled = true; b.classList.add('wrong'); app.sound.play('wrong');
+      b.disabled = true; b.classList.add('wrong'); app.sound.play('wrong'); box._wrong++;
       b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
       $('#tfb', box).innerHTML = '<p class="note">再想想看，換一個答案試試！</p>';
     }
@@ -1318,6 +1415,7 @@ function discoverySolved(box, d) {
   const isl = d.island;
   const wasOpen = app.state.challengeOpen(isl);
   const first = app.state.recordDiscovery(d.id);
+  app.sync.log({ type: 'discovery', island: isl, item: d.id, text: d.title + (d.task.q ? '：' + d.task.q : '（詩句排序）'), tries: (box._wrong || 0) + 1, correct: !box._wrong });
   app.sound.play('correct'); setTimeout(() => app.sound.play('discover'), 260);
   if (app.world) app.world.burst(app.world.anchor(isl, d.anchor).focus.clone(), 0x9be06a, 40, { up: 3, dur: 1.8 });
   const nowOpen = isl !== 'center' && app.state.challengeOpen(isl);
@@ -1359,6 +1457,7 @@ function updateSpots() {
   const w = app.world; if (!w || !w.anchors) return;
   const box = $('#labels');
   app.spots ||= {};
+  const fpHere = w.viewMode === 'fp' && w.player && $('#card').hidden ? w.whereIs(w.player.pos) : null;
   for (const d of Object.values(app.discById)) {
     const a = w.anchor(d.island, d.anchor); if (!a) continue;
     let b = app.spots[d.id];
@@ -1371,9 +1470,22 @@ function updateSpots() {
     const p = w.project(a.pos);
     const near = w.camera.position.distanceTo(a.focus) < (w.camera.aspect < .8 ? 70 : 58);
     const vis = p.front && near && p.x > 0 && p.x < w._w && p.y > 60 && p.y < w._h;
-    b.classList.toggle('hidden', !vis);
+    // 第一人稱：同一座島上、還沒探索、不在畫面裡的 ✨，貼在畫面邊緣指出方向
+    const edge = !vis && !found && fpHere && d.island === fpHere && !app.reduced;
+    b.classList.toggle('hidden', !vis && !edge);
+    b.classList.toggle('edge', edge);
     if (found !== b._found) { b._found = found; b.classList.toggle('done', found); b.textContent = found ? '✓' : '✨'; }
     if (vis) { const sz = found ? 19 : 23; b.style.transform = `translate(${Math.round(p.x - sz)}px, ${Math.round(p.y - sz)}px)`; }
+    else if (edge) {
+      const cx = w._w / 2, cy = w._h / 2;
+      let dx = p.x - cx, dy = p.y - cy;
+      if (!p.front) { dx = -dx; dy = -dy; }
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) dx = 1;
+      const k = Math.min((cx - 34) / Math.abs(dx || 1e-6), (cy - 110) / Math.abs(dy || 1e-6));
+      const ex = cx + dx * k, ey = cy + dy * k;
+      b.style.transform = `translate(${Math.round(ex - 23)}px, ${Math.round(ey - 23)}px)`;
+      b.style.setProperty('--ang', `${Math.atan2(dy, dx)}rad`);
+    }
   }
 }
 function updateNear() {
