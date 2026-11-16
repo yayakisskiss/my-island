@@ -2534,10 +2534,11 @@ async function gradeOne(j,p,c){
   try{
     j.ctl=new AbortController();
     const r=await _sample.json(`你是台灣國中小教師的閱卷助理。以下 ${split?j.pages.length*2:j.pages.length} 張圖片是「同一位學生」的考卷${split?'（每一頁分成上半部、下半部兩張，依序排列，上下有少量重疊）':''}。
-任務：讀出學生在每一題寫的答案，依正確答案給分，並判斷答錯背後最可能的迷失概念。
+任務：讀出學生在每一題寫的答案，給分，並判斷答錯背後最可能的迷失概念。
+${markRule()}
 題目與正確答案：${JSON.stringify(items)}
 迷失概念清單（mis 只能填這裡的 id，沒有適合的填 null）：${JSON.stringify(mis)}
-只回傳一個 JSON 物件：{"seat":"考卷上的座號（看不到填空字串）",${deidOn()?'':'"name":"考卷上的姓名（看不到填空字串）",'}"answers":[{"no":"題號","read":"學生寫的答案，照抄；選擇題只寫選項字母；空白寫空字串","score":得分,"mis":"迷失概念 id 或 null","sure":true或false}]}
+只回傳一個 JSON 物件：{"seat":"考卷上的座號（看不到填空字串）",${deidOn()?'':'"name":"考卷上的姓名（看不到填空字串）",'}"total":"卷面上教師寫的總分（沒有寫就填空字串）","answers":[{"no":"題號","read":"學生原本寫的答案，照抄；選擇題只寫選項字母；空白寫空字串","score":得分,"mark":"教師批改記號：對、錯、部分或無","mis":"迷失概念 id 或 null","sure":true或false}]}
 規則：
 1. 每一題都要列出，順序與題目清單相同。
 2. 完全正確給滿分；錯誤給 0；造句、簡答依參考答案與 rubric 給分；填充題意思相同的寫法（全形半形、國字數字）視為正確。
@@ -2600,7 +2601,7 @@ function aiBodyHTML(){
     <div class="row" style="margin-top:10px">${A.running?`<button class="btn danger" data-act="aistop">⏸ 停止</button><span class="flat">AI 判讀中，每份約需 30～90 秒；處理期間請勿關閉頁面。</span>`:(()=>{const left=A.jobs.filter(j=>j.status!=='done').length;return left?`<button class="btn primary" data-act="aigrade" ${p&&p.items.length?'':'disabled'}>開始 AI 判讀（${left} 份）</button><span class="flat" style="font-size:13px">預估約 ${Math.max(1,Math.round(left*0.5))}～${Math.max(2,Math.round(left*0.9))} 分鐘</span>`:`<span class="up">✓ ${A.jobs.length} 份已判讀完成。可由下拉選單修正作答卷與學生的對應。</span>`})()}</div>
     ${A.jobs.length?`<div class="meter" style="margin-top:10px"><i style="width:${A.jobs.length?done/A.jobs.length*100:0}%"></i></div><div class="jobs">${A.jobs.map(j=>{const s=j.sid&&c.students.find(x=>x.id===j.sid);const R=p?respOf(p,c):null;const sc=s&&R?p.items.reduce((a,x)=>a+evalCell(x,(R.data[s.id]||{})[x.id],R.blankOk).s,0):null;
       return `<div class="job ${j.status}"><span class="jn">第 ${j.i+1} 份</span><span class="flat" style="font-size:12px">${j.pages.length} 頁</span>
-      ${j.status==='done'?`<select class="inp jobSel" data-j="${j.i}">${studs.map(x=>`<option value="${x.id}" ${x.id===j.sid?'selected':''}>${x.seat} ${esc(x.name)}</option>`).join('')}</select><b>${fmt(sc)} 分</b>${j.res&&(j.res.seat||j.res.name)?`<span class="flat" style="font-size:12px">卷面：${esc(j.res.seat||'')} ${deidOn()?'':esc(j.res.name||'')}</span>`:''}`
+      ${j.status==='done'?`<select class="inp jobSel" data-j="${j.i}">${studs.map(x=>`<option value="${x.id}" ${x.id===j.sid?'selected':''}>${x.seat} ${esc(x.name)}</option>`).join('')}</select><b>${fmt(sc)} 分</b>${totalNote(j,sc)}${j.res&&(j.res.seat||j.res.name)?`<span class="flat" style="font-size:12px">卷面：${esc(j.res.seat||'')} ${deidOn()?'':esc(j.res.name||'')}</span>`:''}`
        :j.status==='run'?'<span>⏳ 批改中…</span>':j.status==='err'?`<span class="down">✗ ${esc(j.err)}</span>`:'<span class="flat">等待中</span>'}</div>`}).join('')}</div>`:''}`:''}</div>`;
   const step3=`<div class="card ${done?'':'dim'}"><div class="aistep"><span class="num">3</span><div style="flex:1"><h2>確認判讀結果</h2><p class="hint" style="margin:0">AI 無法確定的作答（字跡不清或給分有疑義）列為「待確認」，由教師確認；其餘作答已完成計分與迷失概念標記。</p></div></div>
    <div class="row" style="margin-top:10px">${pend?`<button class="btn warn" data-act="gopend">✍ 待確認 ${pend} 筆</button>`:done?'<span class="up">✓ 沒有待確認的答案</span>':''}
@@ -2941,6 +2942,21 @@ const _rrtRoster=renderRespTab;
 renderRespTab=function(){_rrtRoster();if(ui.respMode==='ai')rosterPost()};
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act="rosterfix"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
   const n=rosterFromJobs();save();renderAI();toast(`已建立 ${n} 位學生並套用判讀結果`)},true);
+
+/* ================= v12 已批改考卷：以教師批改為準 ================= */
+const MARK_OPTS=[['auto','自動判斷（有批改記號時以教師批改為準）'],['teacher','已由教師批改（依卷面批改計分）'],['ai','尚未批改（由 AI 依答案判分）']];
+const markMode=()=>DB.settings.aiMarked||'auto';
+function markRule(){const m=markMode(),keep='read 一律抄學生原本寫的答案（通常是鉛筆或黑、藍筆）；教師用紅筆寫的訂正、正確答案、分數或評語不要當成學生答案。迷失概念依學生原本的答案判斷。';
+  if(m==='ai')return '考卷尚未批改，由你依正確答案給分。';
+  if(m==='teacher')return `這些考卷已由教師批改完畢。每題得分以教師在卷面上的批改為準：打勾給滿分、打叉給 0 分，有寫扣分或得分時依該數字；不要自行重新評分。若教師批改與正確答案明顯不符，仍依教師批改給分，並將 sure 填 false。${keep}`;
+  return `考卷若已有教師批改（紅筆打勾、打叉、扣分、得分或訂正），每題得分以教師批改為準；沒有批改記號的題目才由你依正確答案給分。${keep}`}
+function totalNote(j,sc){const t=j.res&&parseFloat(String(j.res.total||'').replace(/[^\d.]/g,''));if(!t&&t!==0||isNaN(t))return '';
+  return Math.abs(t-(sc||0))<0.01?`<span class="up" style="font-size:12px">卷面 ${t} 分 ✓</span>`:`<span class="down" style="font-size:12px">⚠ 卷面 ${t} 分，請核對</span>`}
+function markPost(){const o=document.getElementById('aiOrder');if(!o||document.getElementById('aiMarked'))return;
+  o.insertAdjacentHTML('afterend',`<label class="flat" style="font-size:13px">考卷批改狀態</label><select id="aiMarked" class="inp">${MARK_OPTS.map(([v,l])=>`<option value="${v}" ${markMode()===v?'selected':''}>${l}</option>`).join('')}</select>`)}
+const _rrtMark=renderRespTab;
+renderRespTab=function(){_rrtMark();if(ui.respMode==='ai')markPost()};
+document.addEventListener('change',e=>{if(e.target.id!=='aiMarked')return;e.stopPropagation();e.stopImmediatePropagation();DB.settings.aiMarked=e.target.value;save();toast('已設定：'+MARK_OPTS.find(x=>x[0]===e.target.value)[1])},true);
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
