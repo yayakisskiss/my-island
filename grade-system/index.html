@@ -2944,11 +2944,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act="roste
   const n=rosterFromJobs();save();renderAI();toast(`已建立 ${n} 位學生並套用判讀結果`)},true);
 
 /* ================= v12 已批改考卷：以教師批改為準 ================= */
-const MARK_OPTS=[['auto','自動判斷（有批改記號時以教師批改為準）'],['teacher','已由教師批改（依卷面批改計分）'],['ai','尚未批改（由 AI 依答案判分）']];
-const markMode=()=>DB.settings.aiMarked||'auto';
+const MARK_OPTS=[['teacher','已批改：打勾＝答對，其餘＝答錯'],['auto','自動判斷（有批改記號時以教師批改為準）'],['ai','尚未批改（由 AI 依答案判分）']];
+const markMode=()=>DB.settings.aiMarked||'teacher';
 function markRule(){const m=markMode(),keep='read 一律抄學生原本寫的答案（通常是鉛筆或黑、藍筆）；教師用紅筆寫的訂正、正確答案、分數或評語不要當成學生答案。迷失概念依學生原本的答案判斷。';
   if(m==='ai')return '考卷尚未批改，由你依正確答案給分。';
-  if(m==='teacher')return `這些考卷已由教師批改完畢。每題得分以教師在卷面上的批改為準：打勾給滿分、打叉給 0 分，有寫扣分或得分時依該數字；不要自行重新評分。若教師批改與正確答案明顯不符，仍依教師批改給分，並將 sure 填 false。${keep}`;
+  if(m==='teacher')return `這些考卷已由教師批改完畢，教師以紅筆「打勾」表示答對。計分只看教師的批改記號，不要自行重新評分：題號或答案旁有打勾的題目給滿分（mark 填「對」）；沒有打勾的題目（打叉、畫圈、斜線、訂正或沒有任何記號）一律給 0 分（mark 填「錯」）；若旁邊另寫了得分或扣分（例如 -2、+1、半對），依該數字給部分分數（mark 填「部分」）。看不清楚有沒有打勾時 sure 填 false。${keep}`;
   return `考卷若已有教師批改（紅筆打勾、打叉、扣分、得分或訂正），每題得分以教師批改為準；沒有批改記號的題目才由你依正確答案給分。${keep}`}
 function totalNote(j,sc){const t=j.res&&parseFloat(String(j.res.total||'').replace(/[^\d.]/g,''));if(!t&&t!==0||isNaN(t))return '';
   return Math.abs(t-(sc||0))<0.01?`<span class="up" style="font-size:12px">卷面 ${t} 分 ✓</span>`:`<span class="down" style="font-size:12px">⚠ 卷面 ${t} 分，請核對</span>`}
