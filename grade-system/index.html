@@ -888,7 +888,7 @@ function paperEditHTML(p){
 function misUse(p,id){return p.items.filter(it=>Object.values(it.mis).includes(id))}
 function paperMisHTML(p){
   const mapped=p.items.filter(it=>Object.values(it.mis).some(Boolean)).length;
-  return `<div class="card"><div class="spread"><div><h2>迷失概念與補救教材庫</h2><p class="hint" style="margin:0">每個迷失概念都附一份補救教材（成因、策略、教學步驟、練習題、後測題）。建好之後，到「① 試卷與題目」按各題的「迷失對應」連結錯誤選項。目前 ${p.items.length} 題中已有 <b>${mapped}</b> 題設定對應。</p></div>
+  return `<div class="card"><div class="spread"><div><h2>迷失概念與補救教材庫</h2><p class="hint" style="margin:0">每個迷失概念都附一份補救教材（成因、策略、教學步驟、練習題、後測題）。建好之後，到「① 評量試卷分析 → 題目明細」按各題的「迷失對應」連結錯誤選項。目前 ${p.items.length} 題中已有 <b>${mapped}</b> 題設定對應。</p></div>
    <div class="row"><button class="btn green" data-act="mislib">📚 從內建範例庫加入</button><button class="btn primary" data-act="newmis">＋ 新增迷失概念</button></div></div>
    ${p.miscons.length?`<div class="tw"><table class="t"><thead><tr><th>代碼</th><th class="l">迷失概念</th><th class="l">對應概念</th><th class="l">已對應的試題</th><th>教材完整度</th><th>操作</th></tr></thead><tbody>
    ${p.miscons.map(m=>{const us=misUse(p,m.id),comp=[m.desc,m.strategy,m.steps.length,m.practice.length,m.check.length].filter(Boolean).length;
@@ -899,7 +899,7 @@ function paperMisHTML(p){
   <p class="hint" style="margin:0">預設「空白＝全對」，所以老師只要輸入答錯的題目即可。</p></div>`;
 }
 function paperRespHTML(p){
-  const c=C();if(!p.items.length)return '<div class="card"><p class="flat">請先在「① 試卷與題目」建立題目。</p></div>';
+  const c=C();if(!p.items.length)return '<div class="card"><p class="flat">請先在「① 評量試卷分析」建立題目。</p></div>';
   if(!c.students.length)return `<div class="card"><p class="flat">目前班級「${esc(c.name)}」沒有學生。請先切換班級或建立名單。</p></div>`;
   const R=respOf(p,c),secStart=new Set();let prev=null;p.items.forEach((it,i)=>{if(it.sec!==prev)secStart.add(i);prev=it.sec});
   const rows=sortedS(c).map(s=>{const row=R.data[s.id]||{},ab=!!R.absent[s.id];let tot=0;
@@ -910,24 +910,24 @@ function paperRespHTML(p){
    <p class="hint" style="margin:0">選擇題輸入學生選的選項；非選擇題輸入 x（錯）、a～h（錯誤類型）、數字（部分給分）。Enter 往下一位、方向鍵可移動。紅色＝答錯，黃色＝部分給分，底線＝有對應迷失概念。</p></div>
    <div class="row"><label class="chk" style="margin:0"><input type="checkbox" id="blankOk" ${R.blankOk?'checked':''}> 空白視為全對（只輸入錯題）</label><button class="btn green" data-act="resppaste">📋 從 Excel 貼上</button><button class="btn dark" data-act="resptpl">⬇ 作答範例檔</button><button class="btn danger" data-act="respclear">清除本班作答</button></div></div>
    <div class="rwrap"><table class="rgrid"><thead><tr><th class="stk">座號</th><th class="stk2">姓名</th><th>缺考</th>${p.items.map((it,i)=>`<th class="${secStart.has(i)?'secstart':''}" title="${esc(it.sum)}">${esc(it.no)}<div class="rk">${it.key?esc(it.key):'·'}｜${it.score??''}</div></th>`).join('')}<th>得分</th></tr></thead><tbody>${rows}</tbody></table></div>
-   <p class="hint" style="margin:8px 0 0">登錄完成後到「⑤ 作答與迷失診斷」查看結果。表頭下方小字為「答案｜配分」。</p></div>`;
+   <p class="hint" style="margin:8px 0 0">登錄完成後到「③ 分析診斷」查看結果。表頭下方小字為「答案｜配分」。</p></div>`;
 }
 function cellCls(e,v){if(!String(v).trim())return '';return e.ok?'c-ok':e.partial?'c-part'+(e.mis?' c-mis':''):'c-bad'+(e.mis?' c-mis':'')}
 function paperDiagHTML(p){
   const c=C(),D=diagnose(p,c);
-  if(!D.studs.length)return `<div class="card"><p class="flat">「${esc(c.name)}」還沒有登錄作答資料。請到「④ 學生作答登錄」輸入。</p></div>`;
+  if(!D.studs.length)return `<div class="card"><p class="flat">${c.students.length?`「${esc(c.name)}」還沒有登錄這份評量的作答資料。`:`「${esc(c.name)}」還沒有學生名單，作答結果無法對應到學生。`}</p><div class="row"><button class="btn primary" data-act="tab" data-tab="resp">前往 ② 作答登錄</button></div></div>`;
   const lv={};D.SD.forEach(x=>lv[x.level]=(lv[x.level]||0)+1);
   return `<div class="kpis"><div class="kpi"><div class="l">應試人數</div><div class="v">${D.studs.length} <small>人</small></div><div class="d">平均得分 ${fmt(mean(D.ST.map(x=>x.score)))}／${D.tot}</div></div>
    <div class="kpi"><div class="l">班級平均得分率</div><div class="v">${Math.round(D.avgRate)}%</div><div class="d">平均答對率 P ＝ ${pc0(D.avgP)}</div></div>
    <div class="kpi"><div class="l">需補救學生</div><div class="v down">${(lv['優先補救']||0)+(lv['加強輔導']||0)+(lv['個別迷思補強']||0)} <small>人</small></div><div class="d">優先 ${lv['優先補救']||0}｜加強 ${lv['加強輔導']||0}｜迷思補強 ${lv['個別迷思補強']||0}</div></div>
    <div class="kpi"><div class="l">偵測到的迷失概念</div><div class="v" style="color:#5a35a8">${D.MS.filter(x=>x.per.length).length} <small>種</small></div><div class="d">確認 ${D.MS.reduce((a,x)=>a+x.conf.length,0)} 人次｜疑似 ${D.MS.reduce((a,x)=>a+x.susp.length,0)} 人次</div></div></div>
   <div class="card"><div class="spread" style="margin:0"><p class="hint" style="margin:0">下方為完整診斷報告（與列印版相同）。「確認」＝同一迷失概念出現 2 題以上（或只有 1 題可檢測且答錯）；「疑似」＝只出現 1 次。</p>
-   <div class="row"><button class="btn" data-act="snappaper">📌 存成歷程</button><button class="btn primary" data-act="printfmt" data-v="diag">🖨 列印診斷報告</button><button class="btn purple" data-act="printfmt" data-v="stud">🖨 列印學生個別診斷單</button><button class="btn green" data-act="ptab" data-v="remed">前往 ⑥ 補救教學 ›</button></div></div></div>
+   <div class="row"><button class="btn" data-act="snappaper">📌 存成歷程</button><button class="btn primary" data-act="printfmt" data-v="diag">🖨 列印診斷報告</button><button class="btn purple" data-act="printfmt" data-v="stud">🖨 列印學生個別診斷單</button><button class="btn green" data-act="ptab" data-v="remed">前往 ④ 補救教學 ›</button></div></div></div>
   <div class="docwrap">${docDiag(p,c)}</div>`;
 }
 function paperRemedHTML(p){
   const c=C(),D=diagnose(p,c);
-  if(!D.studs.length)return `<div class="card"><p class="flat">「${esc(c.name)}」還沒有登錄作答資料。請到「④ 學生作答登錄」輸入。</p></div>`;
+  if(!D.studs.length)return `<div class="card"><p class="flat">${c.students.length?`「${esc(c.name)}」還沒有登錄這份評量的作答資料。`:`「${esc(c.name)}」還沒有學生名單，作答結果無法對應到學生。`}</p><div class="row"><button class="btn primary" data-act="tab" data-tab="resp">前往 ② 作答登錄</button></div></div>`;
   const groups=D.MS.filter(x=>x.per.length);let pass=0,again=0,todo=0;
   groups.forEach(g=>{const r=remedOf(p,c,g.m.id);g.per.forEach(x=>{const st=r.st[x.s.id]||'';st==='通過'?pass++:st==='再加強'?again++:todo++})});
   const lowOnly=D.SD.filter(x=>(x.level==='優先補救'||x.level==='加強輔導')&&!x.mis.length);
@@ -945,7 +945,7 @@ function paperRemedHTML(p){
     ${!g.m.steps.length||!g.m.practice.length?'<p class="down" style="font-size:13px;margin:8px 0 0">⚠ 這個迷失概念的教材還不完整，請先「編輯教材」或用「AI 提示詞」產生。</p>':''}</div>`}).join('')}
   ${lowOnly.length?`<div class="card"><h2>未歸入迷失概念、但需要補救的學生</h2><p class="hint">這些學生得分率偏低，但錯誤沒有對應到已設定的迷失概念。建議檢視錯題、補設迷失對應，或依未精熟概念安排一般性補救。</p>
    <div class="tw"><table class="t" style="min-width:0"><thead><tr><th>座號</th><th class="l">學生</th><th>得分率</th><th>等級</th><th class="l">未精熟概念</th></tr></thead><tbody>${lowOnly.map(x=>`<tr><td>${x.s.seat}</td><td class="l"><b>${esc(x.s.name)}</b></td><td>${Math.round(x.rate)}%</td><td>${lvTag(x.level)}</td><td class="l">${esc(x.lowC.join('、')||'—')}</td></tr>`).join('')}</tbody></table></div></div>`:''}
-  ${groups.length?'':'<div class="card"><p class="flat">目前沒有偵測到迷失概念。請確認「③ 迷失概念與補救教材」與各題的迷失對應已設定，並在作答登錄時輸入錯誤選項或錯誤類型代碼。</p></div>'}`;
+  ${groups.length?'':'<div class="card"><p class="flat">目前沒有偵測到迷失概念。請確認「📚 教材庫」的迷失概念與各題的迷失對應已設定，並在作答登錄時輸入錯誤選項或錯誤類型代碼。</p></div>'}`;
 }
 
 /* --- 診斷與補救文件 --- */
@@ -2911,6 +2911,36 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
 const _rhDeid=renderHeader;
 renderHeader=function(){_rhDeid();const el=$('#hSub');if(el&&deidOn()&&typeof cloud!=='undefined'&&cloud.state==='ok')el.textContent+='（姓名僅存本機）'};
 setTimeout(()=>{restoreNames()},0);
+
+/* ================= v11 AI 閱卷：班級無名單時依份數建立學生 ================= */
+function newStud(seat){return {id:uid(),seat,name:`${seat}號`,type:'一般',exempt:false,acc:[],note:'',s1:{},s2:{}}}
+function rosterFromJobs(){
+  const A=ui.ai,p=P(),c=C();if(!A.jobs||!A.jobs.length)return 0;
+  const todo=A.jobs.filter(j=>!(j.sid&&c.students.find(s=>s.id===j.sid)));
+  const used=new Set(c.students.map(s=>s.seat)),reads=new Map(),cnt={};
+  const rs=j=>{const n=parseInt(String((j.res&&j.res.seat)||'').replace(/\D/g,''),10);return n>0&&n<100?n:null};
+  todo.forEach(j=>{const n=rs(j);if(n)cnt[n]=(cnt[n]||0)+1});
+  todo.forEach(j=>{const n=rs(j);if(n&&cnt[n]===1&&!used.has(n)){reads.set(j,n);used.add(n)}});
+  let next=1;const free=()=>{while(used.has(next))next++;return next};
+  todo.forEach(j=>{let seat=reads.get(j);if(seat==null){seat=used.has(j.i+1)?free():j.i+1;used.add(seat)}
+    const s=newStud(seat);c.students.push(s);
+    if(j.status==='done'&&j.res){j.sid=s.id;if(p)applyResult(p,c,s.id,j.res)}});
+  c.students.sort((a,b)=>a.seat-b.seat);return todo.length}
+const _agRoster=aiGrade;
+aiGrade=async function(){const A=ui.ai,c=C();
+  if(A.jobs&&A.jobs.length&&!c.students.length&&!(deidOn()&&!maskCfg().on&&!A.selfMasked)){
+    const n=rosterFromJobs();save();toast(`「${c.name}」尚無學生名單，已依作答卷份數建立 ${n} 位學生（以座號顯示，可之後補上姓名）`)}
+  return _agRoster()};
+function rosterPost(){const A=ui.ai,c=C();if(!A.jobs||!A.jobs.length)return;const box=document.getElementById('aiStuFile');if(!box)return;
+  const orphan=A.jobs.filter(j=>j.status==='done'&&(!j.sid||!c.students.find(s=>s.id===j.sid))).length;
+  const warn=[...document.querySelectorAll('#p-resp span.down')].find(x=>x.textContent.includes('請確認頁數設定'));
+  if(!c.students.length&&warn)warn.outerHTML=`<span class="flat">（班級尚無學生名單：開始判讀時會依份數自動建立座號 1～${A.jobs.length} 的學生）</span>`;
+  if(orphan){const row=document.querySelector('#p-resp .jobs');if(row&&!document.getElementById('rosterFix'))row.insertAdjacentHTML('beforebegin',
+    `<div id="rosterFix" class="banner" style="margin-top:10px"><span>有 <b>${orphan}</b> 份已判讀的作答卷還沒有對應到學生（班級名單不足）。可依卷面座號或檔案順序自動建立學生並套用判讀結果。</span><button class="btn primary" data-act="rosterfix">依份數建立學生並套用結果</button></div>`)}}
+const _rrtRoster=renderRespTab;
+renderRespTab=function(){_rrtRoster();if(ui.respMode==='ai')rosterPost()};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="rosterfix"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
+  const n=rosterFromJobs();save();renderAI();toast(`已建立 ${n} 位學生並套用判讀結果`)},true);
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
