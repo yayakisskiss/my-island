@@ -1799,7 +1799,7 @@ function cycleState(p,c){
 }
 function ctxBar(p){
   const c=C(),cs=p?cycleState(p,c):{st:[['design','① 試卷分析'],['resp','② 作答登錄'],['diag','③ 分析診斷'],['remed','④ 補救教學'],['student','⑤ 學習路徑']].map(([k,l])=>({k,l})),next:['design','新增評量並上傳試卷進行分析']};
-  return `<div class="card ctx"><div class="spread" style="margin-bottom:8px"><div class="row"><b>目前評量</b>${DB.papers.length?`<select id="paperSel" class="inp">${DB.papers.map(x=>`<option value="${x.id}" ${p&&x.id===p.id?'selected':''}>${esc(x.title||'（未命名）')}｜${esc(x.kind||'')}</option>`).join('')}</select>`:'<span class="flat">尚無評量</span>'}
+  return `<div class="card ctx"><div class="spread" style="margin-bottom:8px"><div class="row"><b>目前評量</b>${DB.papers.length?`<select id="paperSel" class="inp">${DB.papers.map(x=>`<option value="${x.id}" ${p&&x.id===p.id?'selected':''}>${esc(x.title||'（未命名）')}｜${esc(x.kind||'')}（${x.items.length} 題・${r1(x.items.reduce((a,it)=>a+(num(it.score)||0),0))} 分）</option>`).join('')}</select>`:'<span class="flat">尚無評量</span>'}
    <span class="flat" style="font-size:13px">對象班級：<b>${esc(c.name)}</b></span></div>
    <div class="row"><button class="btn sm primary" data-act="newpaper">＋ 新增評量</button>${p?'<button class="btn sm" data-act="duppaper">複製</button><button class="btn sm danger" data-act="delpaper">刪除</button>':''}</div></div>
    ${cs?`<div class="cycle">${cs.st.map((s,i)=>`${i?'<span class="arr">→</span>':''}<button class="cy ${ui.tab===s.k?'on':''} ${s.ok?'done':''}" data-act="tab" data-tab="${s.k}"><span>${s.l}</span>${s.info?`<small>${esc(s.info)}</small>`:''}${s.warn?`<small class="down">${esc(s.warn)}</small>`:''}</button>`).join('')}
@@ -2598,7 +2598,7 @@ function aiBodyHTML(){
    ${A.pages?`<div class="row" style="margin-top:10px"><label class="flat" style="font-size:13px">每位學生幾頁</label><input id="aiPer" class="inp" style="width:70px" inputmode="numeric" value="${esc(A.per)}" placeholder="自動">
     <label class="flat" style="font-size:13px">對應學生</label><select id="aiOrder" class="inp"><option value="seat" ${A.order==='seat'?'selected':''}>依檔案順序＝座號順序</option><option value="ai" ${A.order==='ai'?'selected':''}>由 AI 讀考卷上的座號／姓名</option></select>
     <span>共分成 <b>${A.jobs.length}</b> 份考卷${A.jobs.length!==studs.length?`<span class="down">（班上 ${studs.length} 人，請確認頁數設定）</span>`:''}</span></div>
-    <div class="row" style="margin-top:10px">${A.running?`<button class="btn danger" data-act="aistop">⏸ 停止</button><span class="flat">AI 判讀中，每份約需 30～90 秒；處理期間請勿關閉頁面。</span>`:(()=>{const left=A.jobs.filter(j=>j.status!=='done').length;return left?`<button class="btn primary" data-act="aigrade" ${p&&p.items.length?'':'disabled'}>開始 AI 判讀（${left} 份）</button><span class="flat" style="font-size:13px">預估約 ${Math.max(1,Math.round(left*0.5))}～${Math.max(2,Math.round(left*0.9))} 分鐘</span>`:`<span class="up">✓ ${A.jobs.length} 份已判讀完成。可由下拉選單修正作答卷與學生的對應。</span>`})()}</div>
+    <div class="row" style="margin-top:10px">${A.running?`<button class="btn danger" data-act="aistop">⏸ 停止</button><span class="flat">AI 判讀中：每一頁會分區放大後逐頁判讀，並以卷面總分複核，每頁約需 1 分鐘；處理期間請勿關閉頁面。</span>`:(()=>{const left=A.jobs.filter(j=>j.status!=='done').length;return left?`<button class="btn primary" data-act="aigrade" ${p&&p.items.length?'':'disabled'}>開始 AI 判讀（${left} 份）</button><span class="flat" style="font-size:13px">預估約 ${(pg=>`${Math.max(1,Math.round(pg*0.4))}～${Math.max(2,Math.round(pg*1.1))}`)(A.jobs.filter(j=>j.status!=='done').reduce((a,j)=>a+j.pages.length,0))} 分鐘</span>`:`<span class="up">✓ ${A.jobs.length} 份已判讀完成。可由下拉選單修正作答卷與學生的對應。</span>`})()}</div>
     ${A.jobs.length?`<div class="meter" style="margin-top:10px"><i style="width:${A.jobs.length?done/A.jobs.length*100:0}%"></i></div><div class="jobs">${A.jobs.map(j=>{const s=j.sid&&c.students.find(x=>x.id===j.sid);const R=p?respOf(p,c):null;const sc=s&&R?p.items.reduce((a,x)=>a+evalCell(x,(R.data[s.id]||{})[x.id],R.blankOk).s,0):null;
       return `<div class="job ${j.status}"><span class="jn">第 ${j.i+1} 份</span><span class="flat" style="font-size:12px">${j.pages.length} 頁</span>
       ${j.status==='done'?`<select class="inp jobSel" data-j="${j.i}">${studs.map(x=>`<option value="${x.id}" ${x.id===j.sid?'selected':''}>${x.seat} ${esc(x.name)}</option>`).join('')}</select><b>${fmt(sc)} 分</b>${totalNote(j,sc)}${j.res&&(j.res.seat||j.res.name)?`<span class="flat" style="font-size:12px">卷面：${esc(j.res.seat||'')} ${deidOn()?'':esc(j.res.name||'')}</span>`:''}`
@@ -2944,8 +2944,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act="roste
   const n=rosterFromJobs();save();renderAI();toast(`已建立 ${n} 位學生並套用判讀結果`)},true);
 
 /* ================= v12 已批改考卷：以教師批改為準 ================= */
-const MARK_OPTS=[['teacher','已批改：打勾＝答對，其餘＝答錯'],['auto','自動判斷（有批改記號時以教師批改為準）'],['ai','尚未批改（由 AI 依答案判分）']];
-const markMode=()=>DB.settings.aiMarked||'teacher';
+const MARK_OPTS=[['teacher','已批改：打勾＝答對'],['teacherx','已批改：只標記錯題（沒有記號＝答對）'],['ai','尚未批改（由 AI 依答案判分）']];
+const markMode=()=>{const m=DB.settings.aiMarked;return m==='teacherx'||m==='ai'?m:'teacher'};
 function markRule(){const m=markMode(),keep='read 一律抄學生原本寫的答案（通常是鉛筆或黑、藍筆）；教師用紅筆寫的訂正、正確答案、分數或評語不要當成學生答案。迷失概念依學生原本的答案判斷。';
   if(m==='ai')return '考卷尚未批改，由你依正確答案給分。';
   if(m==='teacher')return `這些考卷已由教師批改完畢，教師以紅筆「打勾」表示答對。計分只看教師的批改記號，不要自行重新評分：題號或答案旁有打勾的題目給滿分（mark 填「對」）；沒有打勾的題目（打叉、畫圈、斜線、訂正或沒有任何記號）一律給 0 分（mark 填「錯」）；若旁邊另寫了得分或扣分（例如 -2、+1、半對），依該數字給部分分數（mark 填「部分」）。看不清楚有沒有打勾時 sure 填 false。${keep}`;
@@ -2961,6 +2961,262 @@ document.addEventListener('change',e=>{if(e.target.id!=='aiMarked')return;e.stop
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act="quickroster"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
   const n=parseInt(($('#quickN')||{}).value,10);if(!(n>0&&n<=60)){toast('請輸入 1～60 的人數');return}
   const c=C();for(let i=1;i<=n;i++)if(!c.students.find(s=>s.seat===i))c.students.push(newStud(i));c.students.sort((a,b)=>a.seat-b.seat);save();go(ui.tab);toast(`已建立座號 1～${n} 的學生名單`)},true);
+
+/* ================= v13 AI 閱卷逐份核對 ================= */
+function scoreCheckBanner(){const p=P();if(!p||!p.items.length)return '';const miss=p.items.filter(it=>!(num(it.score)>0)).length,sum=r1(p.items.reduce((a,it)=>a+(num(it.score)||0),0));
+  const guess=markMode()==='ai'&&p.items.some(it=>it.ansGuess);
+  if(!miss&&sum===100&&!guess)return '';
+  if(!miss&&sum===100)return `<div class="banner" id="scoreBanner" style="margin-top:10px"><span>⚠ 這份評量的正確答案是 AI 依題意推測的，尚未經教師確認。未批改的考卷會依這些答案判分，請先到「① 評量試卷分析 → 題目明細」核對答案。</span><button class="btn" data-act="tab" data-tab="design">前往核對答案</button></div>`;
+  return `<div class="banner" id="scoreBanner" style="margin-top:10px"><span>⚠ 這份評量的題目配分合計 <b>${sum}</b> 分${miss?`，有 <b>${miss}</b> 題沒有配分`:''}。配分不正確時，系統算出的分數會和卷面不同。請先到「① 評量試卷分析 → 題目明細」修正配分，再重新核對。</span><button class="btn" data-act="tab" data-tab="design">前往修正配分</button></div>`}
+let _rv=null;
+async function reviewOpen(ji){const A=ui.ai,j=A.jobs[ji],p=P(),c=C();if(!j||!j.sid)return;const s=c.students.find(x=>x.id===j.sid);if(!s)return;
+  const R=respOf(p,c),row=R.data[s.id]||{};
+  _rv={ji,sid:s.id,sc:p.items.map(it=>evalCell(it,row[it.id],R.blankOk).s)};
+  const ans=it=>{const a=(j.res.answers||[]).find(x=>String(x.no||'').trim()===it.no)||(j.res.answers||[])[p.items.indexOf(it)]||{};return a};
+  const imgs=(await Promise.all(j.pages.map(async pg=>`<img src="${fitEdge(await pageCanvas(pg),1600).toDataURL('image/jpeg',.72)}" title="點一下放大或縮小" onclick="this.style.width=this.style.width==='260%'?'100%':'260%'" style="width:100%;max-width:none;cursor:zoom-in;border:1px solid #dde;border-radius:6px;margin-bottom:8px">`))).join('');
+  openModal(`<h3>第 ${ji+1} 份核對（座號 ${s.seat}）</h3><p style="margin:0 0 8px" id="rvTot"></p>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start">
+    <div style="max-height:68vh;overflow:auto">${imgs}</div>
+    <div style="max-height:68vh;overflow:auto"><table class="t" style="min-width:0;font-size:13px"><thead><tr><th>題號</th><th>配分</th><th class="l">學生答案</th><th>AI 判讀</th><th>得分</th><th></th></tr></thead><tbody>
+    ${p.items.map((it,i)=>{const a=ans(it),full=num(it.score)||0;return `<tr><td>${esc(it.no)}</td><td>${full}</td><td class="l">${esc(String(a.read??''))}</td><td>${esc(a.mark||'')}${a.sure===false?' <span class="down">?</span>':''}${a.fix?' <span class="flat" style="font-size:11px">複核</span>':''}</td>
+     <td><input class="inp rvS" data-i="${i}" style="width:54px" inputmode="decimal" value="${_rv.sc[i]}"></td>
+     <td style="white-space:nowrap"><button class="btn sm" data-act="rvset" data-i="${i}" data-v="${full}">✓</button><button class="btn sm" data-act="rvset" data-i="${i}" data-v="0">✗</button></td></tr>`}).join('')}</tbody></table></div></div>
+   <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="rvsave">儲存這份</button>${ji+1<A.jobs.length?'<button class="btn green" data-act="rvsavenext">儲存並核對下一份 ›</button>':''}</div>`,true);
+  rvTotal()}
+function rvTotal(){const A=ui.ai,j=A.jobs[_rv.ji],t=j.res&&parseFloat(String(j.res.total||'').replace(/[^\d.]/g,''));const sum=r1(_rv.sc.reduce((a,b)=>a+(+b||0),0));
+  const el=document.getElementById('rvTot');if(el)el.innerHTML=`系統得分 <b>${sum}</b> 分${isNaN(t)||t==null?'':`　卷面總分 <b>${t}</b> 分　${Math.abs(t-sum)<0.01?'<span class="up">✓ 一致</span>':`<span class="down">相差 ${r1(sum-t)} 分</span>`}`}　<span class="flat" style="font-size:12.5px">對照考卷（點圖可放大），點 ✓／✗ 或直接改得分。</span>`}
+function rvSave(){const p=P(),c=C(),R=respOf(p,c),row=R.data[_rv.sid]=R.data[_rv.sid]||{},raw=R.raw[_rv.sid]||{};
+  p.items.forEach((it,i)=>{const full=num(it.score)||0,sc=Math.max(0,Math.min(full,+_rv.sc[i]||0)),old=String(row[it.id]||'');
+    const was=evalCell(it,old,R.blankOk).s;if(Math.abs(was-sc)<0.001)return;
+    if(sc>=full)row[it.id]='o';
+    else if(sc>0)row[it.id]=String(r1(sc));
+    else if(it.key){const L=(String(raw[it.id]||'').match(/[A-Ea-e]/)||[''])[0].toUpperCase();row[it.id]=L&&L!==it.key.toUpperCase()?L:'x'}
+    else row[it.id]='x';
+    Object.values(R.pending[it.id]||{}).forEach(g=>{g.sids=g.sids.filter(x=>x!==_rv.sid)})});
+  save()}
+function rvPost(){const A=ui.ai;if(!A.jobs||!A.jobs.length)return;
+  if(!document.getElementById('scoreBanner')){const f=document.querySelector('#p-resp .jobs')||document.getElementById('aiStuFile');const b=scoreCheckBanner();if(f&&b)(f.closest('.row')||f).insertAdjacentHTML('beforebegin',b)}
+  document.querySelectorAll('#p-resp .jobSel').forEach(sel=>{const ji=+sel.dataset.j,j=A.jobs[ji];if(!j||!j.sid||sel.parentNode.querySelector('.rvBtn'))return;
+    sel.parentNode.insertAdjacentHTML('beforeend',`<button class="btn sm rvBtn" data-act="rvopen" data-j="${ji}">逐題核對</button>`)})}
+const _rrtRv=renderRespTab;
+renderRespTab=function(){_rrtRv();if(ui.respMode==='ai')rvPost()};
+document.addEventListener('input',e=>{if(!e.target.classList||!e.target.classList.contains('rvS')||!_rv)return;_rv.sc[+e.target.dataset.i]=e.target.value;rvTotal()},true);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="rvopen"],[data-act="rvset"],[data-act="rvsave"],[data-act="rvsavenext"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();
+  const a=b.dataset.act;
+  if(a==='rvopen')reviewOpen(+b.dataset.j);
+  else if(a==='rvset'){const i=+b.dataset.i;_rv.sc[i]=+b.dataset.v;const inp=document.querySelector(`.rvS[data-i="${i}"]`);if(inp)inp.value=b.dataset.v;rvTotal()}
+  else{rvSave();const ji=_rv.ji;closeModal();renderAI();toast('已儲存核對結果');
+    if(a==='rvsavenext'){const A=ui.ai;let k=ji+1;while(k<A.jobs.length&&!A.jobs[k].sid)k++;if(k<A.jobs.length)reviewOpen(k)}}},true);
+
+/* ================= v14 影像辨識閱卷重整：逐頁分區放大判讀＋卷面總分複核 ================= */
+const HI_MAX=2600,TILE_MP=1.15e6;
+function fitArea(cv,mp){const a=cv.width*cv.height;if(a<=mp)return cv;const s=Math.sqrt(mp/a),c=document.createElement('canvas');c.width=Math.round(cv.width*s);c.height=Math.round(cv.height*s);c.getContext('2d').drawImage(cv,0,0,c.width,c.height);return c}
+function fitEdge(cv,px){const m=Math.max(cv.width,cv.height);if(m<=px)return cv;const s=px/m,c=document.createElement('canvas');c.width=Math.round(cv.width*s);c.height=Math.round(cv.height*s);c.getContext('2d').drawImage(cv,0,0,c.width,c.height);return c}
+function cropRect(cv,x0,y0,x1,y1){const c=document.createElement('canvas'),X=Math.round(cv.width*x0),Y=Math.round(cv.height*y0);c.width=Math.round(cv.width*(x1-x0));c.height=Math.round(cv.height*(y1-y0));c.getContext('2d').drawImage(cv,-X,-Y);return c}
+function rotCanvas(cv,deg){deg=((deg%360)+360)%360;if(!deg)return cv;const c=document.createElement('canvas'),sw=deg===90||deg===270;c.width=sw?cv.height:cv.width;c.height=sw?cv.width:cv.height;const x=c.getContext('2d');x.translate(c.width/2,c.height/2);x.rotate(deg*Math.PI/180);x.drawImage(cv,-cv.width/2,-cv.height/2);return c}
+async function pageCanvas(pg){let cv;if(pg.hi){const bm=await createImageBitmap(pg.hi);cv=document.createElement('canvas');cv.width=bm.width;cv.height=bm.height;cv.getContext('2d').drawImage(bm,0,0);if(bm.close)bm.close()}else cv=pg.cv;return rotCanvas(cv,ui.ai.rot||0)}
+async function sheetPages(files,onProg){
+  const out=[];
+  for(const f of files){
+    if(/pdf$/i.test(f.type)||/\.pdf$/i.test(f.name)){
+      if(!window.pdfjsLib)throw new Error('PDF 讀取元件沒有載入');
+      const doc=await window.pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
+      for(let i=1;i<=doc.numPages;i++){const pg=await doc.getPage(i),v=pg.getViewport({scale:1}),vp=pg.getViewport({scale:HI_MAX/Math.max(v.width,v.height)});
+        const cv=document.createElement('canvas');cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);const cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);
+        await pg.render({canvasContext:cx,viewport:vp}).promise;out.push({hi:await toBlob(cv,.9),w:cv.width,h:cv.height,label:`${f.name} 第${i}頁`});cv.width=cv.height=0;if(onProg)onProg(out.length)}
+    }else if(/^image\//.test(f.type)){
+      const img=await createImageBitmap(f),sc=Math.min(1,HI_MAX/Math.max(img.width,img.height)),cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);out.push({hi:await toBlob(cv,.9),w:cv.width,h:cv.height,label:f.name});cv.width=cv.height=0;if(onProg)onProg(out.length)}
+  }
+  return out;
+}
+async function makePrev(){const A=ui.ai;A.prev=null;if(!A.pages||!A.pages.length)return;const cv=await pageCanvas(A.pages[0]);A.prev=fitEdge(cv,1200);maskDefault(cv.width>cv.height*1.05)}
+function maskDefault(land){const M=maskCfg(),k=land?'L':'P';M.rect=M.rect||{};Object.assign(M,M.rect[k]||(land?{l:88,t:0,w:12,h:100}:{l:0,t:0,w:100,h:10}));M.ori=k}
+async function aiPrepareSheets(){
+  const A=ui.ai;if(!A.stuFiles||!A.stuFiles.length){toast('請先選擇學生考卷檔案');return}
+  A.msg='轉換頁面中…';A.maskOk=false;A.prev=null;renderAI();
+  try{A.pages=await sheetPages(A.stuFiles,n=>{A.msg=`轉換頁面中…（${n} 頁）`;renderAI()});await makePrev();A.msg='';buildJobs()}catch(e){A.msg='⚠ '+aiErr(e)}
+  renderAI();
+}
+
+/* ---------- 分區 ---------- */
+function tileGrid(cv){const land=cv.width>cv.height*1.05,lim=maxImgs();
+  const [c,r]=lim>=7?(land?[3,2]:[2,3]):lim>=5?[2,2]:lim>=3?(land?[2,1]:[1,2]):[1,1];return{land,c,r}}
+function isVertical(p){return /國語|國文|語文/.test((p&&p.subject)||'')}
+async function pageTiles(j,i,p){
+  let cv=await pageCanvas(j.pages[i]);
+  if(deidOn()&&maskCfg().on&&(i===0||maskCfg().all))cv=maskCanvas(cv);
+  const g=tileGrid(cv),o=.045,blobs=[],desc=[],rtl=isVertical(p)&&g.land;
+  const cn=g.c===3?['左','中','右']:g.c===2?['左','右']:[''],rn=g.r===3?['上','中','下']:g.r===2?['上','下']:[''];
+  if(g.c*g.r>1)blobs.push(await toBlob(fitArea(cv,TILE_MP),.82));
+  const cols=[...Array(g.c).keys()];if(rtl)cols.reverse();
+  for(const x of cols)for(let y=0;y<g.r;y++){
+    const t=cropRect(cv,Math.max(0,x/g.c-o),Math.max(0,y/g.r-o),Math.min(1,(x+1)/g.c+o),Math.min(1,(y+1)/g.r+o));
+    blobs.push(await toBlob(fitArea(t,TILE_MP),.9));desc.push((cn[x]+rn[y])||'整頁')}
+  return{g,blobs,desc,rtl};
+}
+
+/* ---------- 提示詞 ---------- */
+const MODE_TXT={
+  teacher:'這份考卷已由教師用紅筆批改完畢。教師在答對的題目（或小格）旁「打勾」；打叉、畫圈、斜線、紅筆訂正、寫上正確答案或寫扣分數字，代表該題答錯或被扣分。你的工作是「讀出教師的批改結果」，不要自己判斷學生答案對不對。',
+  teacherx:'這份考卷已由教師用紅筆批改完畢。教師只在答錯的地方做記號（打叉、畫圈、斜線、紅筆訂正、寫上正確答案或扣分數字）；沒有任何記號的題目代表答對。你的工作是「讀出教師的批改結果」，不要自己判斷學生答案對不對。',
+  ai:'這份考卷尚未批改，請依題目清單中的正確答案（answer）判分。'};
+function pagePrompt(j,i,p,T,pass){
+  const mode=markMode(),n=j.pages.length,k=T.blobs.length,multi=k>1;
+  const mis=DB.lib.miscons.filter(m=>!p.subject||!m.subject||m.subject===p.subject).map(m=>({id:m.id,name:m.name,concept:m.concept}));
+  const items=p.items.map(it=>{const o={no:it.no,type:it.type,score:num(it.score)||0};if(it.sum)o.q=String(it.sum).slice(0,24);const a=it.key||it.ans||'';
+    if(mode==='ai'){o.answer=a;if(it.rubric&&it.rubric.length)o.rubric=it.rubric}else if(a&&!/^[A-Ea-e]$/.test(String(a).trim())&&String(a).length<=12)o.ref=a;return o});
+  const graded=mode!=='ai';
+  return `你是台灣國中小教師的閱卷助理。以下 ${k} 張圖片是「同一位學生」考卷的第 ${i+1} 頁（全卷共 ${n} 頁）。
+${multi?`圖 1 是整頁縮圖，用來看版面與各大題的位置。圖 2 到圖 ${k} 是同一頁分區放大的圖，依序為：${T.desc.join('、')}。相鄰的放大圖有少量重疊，重疊處的同一題只算一次。請以放大圖為準來讀字跡與批改記號。`:'這張圖是整頁。'}
+${T.rtl?'這是直書（直排）試卷：文字由上往下寫，由右往左換行。選擇題的作答括號通常在每一行的最上方。':''}
+${MODE_TXT[mode]}${pass===2?'\n這是第二次獨立複核：請放慢速度，逐題、逐格檢查每一個批改記號，不要沿用任何先前的印象。':''}
+
+【全卷題目清單】no 是題號（回覆時請原樣抄寫）；score 是配分；q 是題目摘要${graded?'；ref 是參考答案，只用來幫你找到題目的位置，可能不準確，不可用來判分':'；answer 是正確答案'}。
+${JSON.stringify(items)}
+${mis.length?`迷失概念清單（mis 只能填這裡的 id，沒有適合的填 null）：${JSON.stringify(mis)}\n`:''}
+【只回傳一個 JSON 物件】
+{"seat":"卷面上的座號，看不到填空字串","total":"${graded?'教師寫在卷面上的總分（通常是紅筆寫的大數字），這一頁沒有就填空字串':'空字串'}","covered":["這一頁上出現的題號", "..."],"items":[{"no":"題號","read":"學生原本寫的答案","score":得分數字,"mark":"${graded?'錯、部分 或 無':'對、錯 或 部分'}",${mis.length?'"mis":"迷失概念 id 或 null",':''}"sure":true或false}]}
+
+規則：
+1. covered：列出這一頁上實際出現的「所有」題號，一題都不能漏；不在這一頁的題號不要列。對照題目清單，一個大題若在這一頁，通常它的小題會連續出現。
+2. ${graded?`items：只列出這一頁中「沒有拿到滿分」的題目，以及你「無法確定」的題目。列在 covered、但沒有列在 items 的題目，系統會當作${mode==='teacher'?'教師有打勾、':''}得到滿分，所以省略之前請逐題確認${mode==='teacher'?'真的看得到打勾':'真的沒有任何錯誤記號'}。`:'items：這一頁上的每一題都要列出，依正確答案給分：完全正確給滿分，錯誤給 0 分；造句、簡答依 rubric 給分；意思相同的寫法（全形半形、國字數字）視為正確。'}
+3. score 是「得分」不是扣分。${graded?'教師有寫扣分或得分時，依教師寫的數字計算；整題打叉或畫圈給 0 分。':''}
+4. 一題有多個小格或多個答案時${graded?'，教師通常逐格批改：有寫扣分就照扣分；沒寫時，每個小格的分數＝配分÷小格數，答對幾格給幾格的分數（mark 填「部分」）':'，依答對的小格比例給分（mark 填「部分」）'}。
+5. read：照抄學生原本寫的答案（通常是鉛筆或藍、黑筆），不超過 30 個字；選擇題只寫選項代號，若選項是 ①②③④ 或 1234，依序換成 A、B、C、D。教師用紅筆寫的訂正、正確答案、評語都不是學生的答案，不要抄進 read。
+6. ${mode==='teacher'?'完全沒有任何批改記號的題目：mark 填「無」、score 填 0、sure 填 false。':mode==='teacherx'?'不要因為學生答案看起來不對就扣分，只依教師的記號。':'字跡看不清或給分有疑慮時 sure 填 false。'}
+7. 看不清楚${graded?'批改記號':'字跡'}、無法確定是哪一題、或影像被遮蓋而看不到時，sure 填 false，並給出你最合理的判斷。
+8. 不要讀取或輸出學生姓名。只輸出 JSON，不要其他文字。`;
+}
+
+/* ---------- 呼叫（同時最多 2 個） ---------- */
+const _slot={n:0,q:[]};
+async function withSlot(fn){if(_slot.n>=2)await new Promise(r=>_slot.q.push(r));_slot.n++;try{return await fn()}finally{_slot.n--;const nx=_slot.q.shift();if(nx)nx()}}
+async function askPage(j,i,p,pass){
+  const T=j.tiles[i]||(j.tiles[i]=await pageTiles(j,i,p));
+  const call=()=>{if(ui.ai.stop||!j.ctl)throw{code:'cancelled'};return _sample.json(pagePrompt(j,i,p,T,pass),{images:T.blobs,signal:j.ctl.signal,modelTier:pass===2?'complex':'default',cache:false})};
+  let r;try{r=await withSlot(call)}catch(e){if(e&&e.code==='upstream_error'&&!ui.ai.stop)r=await withSlot(call);else throw e}
+  if(!r||typeof r!=='object'||Array.isArray(r))throw{code:'invalid_json'};
+  return r;
+}
+
+/* ---------- 合併各頁、與卷面總分比對 ---------- */
+const normNo=s=>String(s??'').replace(/[！-～]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xfee0)).replace(/[\s　、．.。]/g,'').replace(/[－—–―‐~～]/g,'-').toLowerCase();
+function parseTotal(t){const m=String(t??'').replace(/[！-～]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xfee0)).match(/\d+(?:\.\d+)?/);if(!m)return null;const v=parseFloat(m[0]);return isNaN(v)?null:v}
+function mergePages(prs,p,mode){
+  const by={},cov=new Set();let seat='',total='';
+  prs.forEach(r=>{if(!r)return;if(!seat&&r.seat!=null&&String(r.seat).trim())seat=String(r.seat).trim();if(!total&&parseTotal(r.total)!=null)total=String(r.total).trim();
+    (Array.isArray(r.covered)?r.covered:[]).forEach(n=>cov.add(normNo(n)));
+    (Array.isArray(r.items)?r.items:[]).forEach(a=>{if(!a||a.no==null)return;const k=normNo(a.no);cov.add(k);const b=by[k];if(!b||(b.mark==='無'&&a.mark!=='無')||(b.sure===false&&a.sure!==false))by[k]=a})});
+  const answers=p.items.map(it=>{const k=normNo(it.no),full=num(it.score)||0,a=by[k];
+    if(a){let sc=num(a.score),sure=a.sure!==false;const mk=String(a.mark||'').trim();
+      if(sc==null){sc=mk==='對'?full:mk==='部分'?r1(full/2):0;if(mk==='部分')sure=false}
+      sc=Math.max(0,Math.min(full,sc));if(mk==='無'&&mode==='teacher'){sc=0;sure=false}
+      return{no:it.no,read:String(a.read??'').slice(0,60),score:sc,mark:sc>=full?'對':(mk||(sc>0?'部分':'錯')),mis:a.mis||null,sure}}
+    if(cov.has(k))return{no:it.no,read:'',score:full,mark:'對',mis:null,sure:true};
+    return{no:it.no,read:'',score:full,mark:'未讀到',mis:null,sure:false}});
+  return{seat,total,answers};
+}
+const sumAns=a=>r1(a.reduce((x,y)=>x+(+y.score||0),0));
+function arbitrate(A,B,T){
+  const D=[];A.answers.forEach((a,i)=>{if(Math.abs(a.score-B.answers[i].score)>0.001)D.push(i)});
+  const out={seat:A.seat||B.seat,total:A.total||B.total,answers:A.answers.map(a=>({...a}))},dA=Math.abs(sumAns(A.answers)-T),dB=Math.abs(sumAns(B.answers)-T);
+  const use=(i,src)=>{out.answers[i]={...src.answers[i]}};
+  if(!D.length)return out;
+  if(D.length<=16){const fixed=sumAns(A.answers)-D.reduce((x,i)=>x+A.answers[i].score,0),sol=[];
+    for(let m=0;m<(1<<D.length)&&sol.length<3;m++){let s=fixed;D.forEach((i,b)=>{s+=(m>>b&1?B:A).answers[i].score});if(Math.abs(r1(s)-T)<0.011)sol.push(m)}
+    if(sol.length===1){D.forEach((i,b)=>{use(i,sol[0]>>b&1?B:A);out.answers[i].sure=true;out.answers[i].fix=true});return out}
+    if(sol.length>1){D.forEach((i,b)=>{use(i,sol[0]>>b&1?B:A);out.answers[i].sure=false;out.answers[i].fix=true});return out}}
+  D.forEach(i=>{use(i,dB<dA?B:A);out.answers[i].sure=false;out.answers[i].fix=true});return out;
+}
+
+/* ---------- 單份判讀 ---------- */
+async function gradeOne(j,p,c){
+  j.status='run';j.err='';j.prog='準備影像…';j.check='';renderAI();
+  const n=j.pages.length,mode=markMode(),M=maskCfg();
+  const sig=JSON.stringify([mode,ui.ai.rot||0,deidOn()&&M.on?[M.l,M.t,M.w,M.h,M.all]:0,p.id,p.items.length]);
+  if(j.sig!==sig){j.pr=[];j.pr2=[];j.sig=sig}
+  j.ctl=new AbortController();j.pr=j.pr||[];j.pr2=j.pr2||[];j.tiles=[];
+  const pass=async(store,k,label)=>{let d=store.filter(Boolean).length;
+    await Promise.all(j.pages.map(async(_,i)=>{if(store[i])return;const r=await askPage(j,i,p,k);store[i]=r;d++;j.prog=`${label} ${d}／${n} 頁`;renderAI()}))};
+  try{
+    j.prog=`判讀 0／${n} 頁`;renderAI();await pass(j.pr,1,'判讀');
+    let r=mergePages(j.pr,p,mode);const T=parseTotal(r.total);
+    if(mode!=='ai'&&T!=null&&Math.abs(sumAns(r.answers)-T)>0.011){
+      j.prog='與卷面總分不符，複核中…';renderAI();await pass(j.pr2,2,'複核');
+      r=arbitrate(r,mergePages(j.pr2,p,mode),T);j.check='re'}
+    if(T!=null&&Math.abs(sumAns(r.answers)-T)<=0.011)r.answers.forEach(a=>{if(a.mark==='未讀到')a.mark='對';a.sure=true});
+    j.res=r;j.sid=matchStudent(r,j,c);applyResult(p,c,j.sid,r);j.status='done';j.tiles=[];
+  }catch(e){j.status=e&&e.code==='cancelled'?'wait':'err';j.err=aiErr(e);if(e&&(e.code==='rate_limited'||e.code==='not_granted'||e.code==='session_expired'||e.code==='sampling_disabled')){ui.ai.stop=true;ui.ai.jobs.forEach(x=>{if(x!==j&&x.ctl)x.ctl.abort()})}}
+  j.ctl=null;j.prog='';save();
+}
+function totalNote(j,sc){const t=j.res?parseTotal(j.res.total):null,re=j.check==='re'?'（已複核）':'';if(t==null)return j.res?'<span class="flat" style="font-size:12px">未讀到卷面總分</span>':'';
+  return Math.abs(t-(sc||0))<0.011?`<span class="up" style="font-size:12px">卷面 ${t} 分 ✓${re}</span>`:`<span class="down" style="font-size:12px">⚠ 卷面 ${t} 分，請核對${re}</span>`}
+
+/* ---------- 姓名遮蓋：在預覽圖上拖曳框選 ---------- */
+function maskBoxHTML(){const M=maskCfg(),A=ui.ai;
+  return `<div id="maskBox" style="margin-top:10px;padding:12px;border:1px solid #cfd6f5;background:#f5f7ff;border-radius:10px">
+   <div class="row"><b>🔒 姓名遮蓋（去識別模式）</b><label style="font-size:13.5px"><input type="checkbox" id="mkOn" ${M.on?'checked':''}> 送出前自動遮蓋姓名</label>
+    ${M.on?`<select id="mkAll" class="inp"><option value="0" ${M.all?'':'selected'}>遮蓋每份第一頁</option><option value="1" ${M.all?'selected':''}>遮蓋每一頁</option></select>`:''}
+    ${A.prev?'<button class="btn sm" data-act="mkrot">↻ 考卷方向不對時旋轉 90°</button>':''}</div>
+   ${M.on?(A.prev?`<p class="hint" style="margin:8px 0">請在下方考卷上<b>用滑鼠或手指拖曳，框住學生姓名</b>。白色區塊是送給 AI 前會蓋掉的範圍。請只蓋住姓名，不要蓋到座號、總分、題目與作答（系統會用卷面總分核對判讀結果）。</p>
+     <canvas id="mkPrev" style="display:block;width:100%;max-width:${A.maskOk?420:860}px;touch-action:none;cursor:crosshair;border:1px solid #ccd;border-radius:6px;background:#fff"></canvas>
+     <label style="display:block;margin-top:8px;font-size:13.5px"><input type="checkbox" id="mkOk" ${A.maskOk?'checked':''}> 我已確認：姓名已蓋住，題目、作答與分數沒有被蓋到</label>`
+     :'<p class="hint" style="margin:6px 0 0">選擇學生作答卷後，這裡會顯示第一頁，請在圖上框出姓名位置。</p>')
+   :`<p class="hint" style="margin:6px 0 0">未使用自動遮蓋時，請在掃描或拍照前先遮住姓名欄。</p><label style="font-size:13.5px"><input type="checkbox" id="mkSelf" ${A.selfMasked?'checked':''}> 我已在掃描前自行遮蓋學生姓名</label>`}</div>`}
+function drawMaskPrev(){const cv=document.getElementById('mkPrev'),A=ui.ai;if(!cv||!A.prev)return;const M=maskCfg();
+  if(cv.width!==A.prev.width||cv.height!==A.prev.height){cv.width=A.prev.width;cv.height=A.prev.height}
+  const x=cv.getContext('2d');x.setLineDash([]);x.drawImage(A.prev,0,0);
+  const X=cv.width*M.l/100,Y=cv.height*M.t/100,W=cv.width*M.w/100,H=cv.height*M.h/100;
+  x.fillStyle='#fff';x.fillRect(X,Y,W,H);x.strokeStyle='#d33';x.lineWidth=3;x.setLineDash([10,6]);x.strokeRect(X,Y,W,H);
+  x.setLineDash([]);x.fillStyle='#d33';x.font='bold 22px sans-serif';if(W>90&&H>30)x.fillText('遮蓋',X+8,Y+26)}
+function deidAIPost(){if(!deidOn())return;const f=document.getElementById('aiStuFile');if(!f)return;const A=ui.ai;
+  if(!document.getElementById('maskBox'))f.closest('.row').insertAdjacentHTML('afterend',maskBoxHTML());drawMaskPrev();
+  document.querySelectorAll('#aiOrder option[value="ai"]').forEach(o=>o.textContent='由 AI 讀考卷上的座號');
+  const why=!maskCfg().on?(A.selfMasked?'':'請先設定姓名遮蓋'):(A.maskOk?'':'請先在上方考卷圖上框住姓名，並勾選確認');
+  if(why)document.querySelectorAll('[data-act="aigrade"]').forEach(b=>{b.disabled=true;if(!b.nextElementSibling||!b.nextElementSibling.classList.contains('mkWhy'))b.insertAdjacentHTML('afterend',`<span class="down mkWhy" style="font-size:13px">${why}</span>`)})}
+let _mkDrag=null;
+const mkPt=(cv,e)=>{const r=cv.getBoundingClientRect();return{x:Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)),y:Math.max(0,Math.min(100,(e.clientY-r.top)/r.height*100))}};
+document.addEventListener('pointerdown',e=>{const cv=e.target;if(!cv||cv.id!=='mkPrev'||ui.ai.running)return;e.preventDefault();_mkDrag=mkPt(cv,e);try{cv.setPointerCapture(e.pointerId)}catch(_){}} ,true);
+document.addEventListener('pointermove',e=>{if(!_mkDrag)return;const cv=document.getElementById('mkPrev');if(!cv)return;const q=mkPt(cv,e),M=maskCfg();
+  M.l=r1(Math.min(_mkDrag.x,q.x));M.t=r1(Math.min(_mkDrag.y,q.y));M.w=r1(Math.abs(q.x-_mkDrag.x));M.h=r1(Math.abs(q.y-_mkDrag.y));drawMaskPrev()},true);
+document.addEventListener('pointerup',e=>{if(!_mkDrag)return;_mkDrag=null;const M=maskCfg(),A=ui.ai;
+  if(M.w<1.5||M.h<1.5){maskDefault(M.ori==='L');toast('範圍太小，請拖曳出一個方框')}else{M.rect=M.rect||{};M.rect[M.ori||'P']={l:M.l,t:M.t,w:M.w,h:M.h}}
+  A.maskOk=false;A.jobs.forEach(j=>{j.tiles=[]});save();renderAI()},true);
+document.addEventListener('change',e=>{const t=e.target;if(t.id!=='mkOk')return;e.stopPropagation();e.stopImmediatePropagation();ui.ai.maskOk=t.checked;renderAI()},true);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="mkrot"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();const A=ui.ai;if(A.running)return;
+  A.rot=((A.rot||0)+90)%360;A.maskOk=false;A.jobs.forEach(j=>{j.tiles=[];j.pr=[];j.pr2=[]});makePrev().then(renderAI)},true);
+const _agMask=aiGrade;
+aiGrade=async function(){const A=ui.ai;if(deidOn()&&maskCfg().on&&!A.maskOk){toast('請先在考卷圖上框住姓名，並勾選確認');return}return _agMask()};
+
+/* ---------- 進度顯示 ---------- */
+function progPost(){const A=ui.ai;if(!A.jobs||!A.jobs.length)return;document.querySelectorAll('#p-resp .jobs .job').forEach((el,i)=>{const j=A.jobs[i];if(!j)return;
+  if(j.status==='run'&&j.prog&&!el.querySelector('.jprog'))el.insertAdjacentHTML('beforeend',`<span class="flat jprog" style="font-size:12px">${esc(j.prog)}</span>`)})}
+const _rrtRead2=renderRespTab;
+renderRespTab=function(){_rrtRead2();if(ui.respMode==='ai')progPost()};
+
+/* ---------- 全部重新判讀 ---------- */
+function redoPost(){const A=ui.ai;if(A.running||!A.jobs||!A.jobs.some(j=>j.status==='done'))return;const box=document.querySelector('#p-resp .jobs');if(!box||document.getElementById('aiRedo'))return;
+  box.insertAdjacentHTML('afterend','<div class="row" style="margin-top:8px"><button class="btn sm" id="aiRedo" data-act="airedo">全部重新判讀</button><span class="flat" style="font-size:12.5px">更改批改狀態、遮蓋範圍或題目配分後，可重新判讀全部作答卷。</span></div>')}
+const _rrtRedo=renderRespTab;
+renderRespTab=function(){_rrtRedo();if(ui.respMode==='ai')redoPost()};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="airedo"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();const A=ui.ai;if(A.running)return;
+  A.jobs.forEach(j=>{j.status='wait';j.pr=[];j.pr2=[];j.res=null;j.err='';j.check=''});renderAI();toast('已重設，請按「開始 AI 判讀」')},true);
+
+/* ---------- 先試判 1 份 ---------- */
+async function aiTryOne(){const A=ui.ai,p=P(),c=C();if(A.running)return;
+  if(!p||!p.items.length){toast('請先建立題目');return}
+  if(deidOn()&&!maskCfg().on&&!A.selfMasked){toast('請先設定姓名遮蓋');return}
+  if(deidOn()&&maskCfg().on&&!A.maskOk){toast('請先在考卷圖上框住姓名，並勾選確認');return}
+  const j=A.jobs.find(x=>x.status!=='done');if(!j){toast('沒有尚未判讀的作答卷');return}
+  if(!c.students.length){rosterFromJobs();save()}
+  A.running=true;A.stop=false;renderAI();await gradeOne(j,p,c);A.running=false;save();renderAI();
+  if(j.status==='done'){toast('試判完成，請對照考卷確認');reviewOpen(j.i)}else if(j.err)toast('試判未完成：'+j.err)}
+function tryPost(){const A=ui.ai;if(A.running||!A.jobs||A.jobs.length<2)return;const b=document.querySelector('#p-resp [data-act="aigrade"]');if(!b||document.getElementById('aiTry'))return;
+  b.insertAdjacentHTML('beforebegin',`<button class="btn" id="aiTry" data-act="aitry" ${b.disabled?'disabled':''}>先試判 1 份</button>`)}
+const _rrtTry=renderRespTab;
+renderRespTab=function(){_rrtTry();if(ui.respMode==='ai')tryPost()};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act="aitry"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();aiTryOne()},true);
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
