@@ -1579,7 +1579,7 @@ const CONLIB=[
 {name:'閱讀理解：詮釋整合',subject:'國語',grade:'中年級',pre:['閱讀理解：提取與推論'],goal:'能整合段落訊息，說出段落大意與文章主旨。',teach:'段落提問與圖像組織（魚骨圖、故事結構圖），刪除細節、歸納重點、找主題句。',resources:['故事結構圖','魚骨圖學習單'],ext:['用一句話寫出全文主旨，並和同學比較','比較兩篇同主題文章的觀點']}
 ];
 FMTS.overview='班級整體學習表現報告';FMTS.sreport='學生學習報告與個人學習路徑';
-const KINDS=['段考','單元評量','前測','後測','補救後測','小考','其他'];
+const KINDS=['期中評量','期末評量','段考','單元評量','前測','後測','補救後測','小考','其他'];
 const TIERS={A:{name:'A 基礎重建',c:'#c43a3a',bg:'#fde8e8',desc:'多個核心概念未精熟：從先備概念重建，小組或個別教學'},B:{name:'B 加強精進',c:'#b7791f',bg:'#fdf3e2',desc:'部分概念或迷思需加強：針對性練習與迷思修正'},C:{name:'C 精熟延伸',c:'#2f8f5b',bg:'#e7f6ee',desc:'概念精熟：提供延伸挑戰與小老師任務'}};
 const tierTag=t=>t?`<span class="tag" style="color:${TIERS[t].c};background:${TIERS[t].bg};border-color:${TIERS[t].c}33">${TIERS[t].name}</span>`:'<span class="flat">—</span>';
 
@@ -3269,6 +3269,10 @@ function pdfPost(){const b=document.querySelector('#p-print [data-act="print"]')
 const _rpPdf=renderPrint;
 renderPrint=function(){_rpPdf();pdfPost()};
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act="mkpdf"]');if(!b)return;e.stopPropagation();e.stopImmediatePropagation();makePdf()},true);
+
+/* ---------- 評量類型：依試卷名稱判定期中／期末 ---------- */
+const _ensKind=ensure;
+ensure=function(){_ensKind();(DB.papers||[]).forEach(p=>{if(p.kind&&p.kind!=='單元評量')return;const t=(p.title||'')+(p.exam||'');if(/期中/.test(t))p.kind='期中評量';else if(/期末/.test(t))p.kind='期末評量'})};
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
