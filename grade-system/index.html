@@ -374,7 +374,7 @@ function demoPaper(){
 }
 function blankClass(name){return {id:uid(),name:name||'新班級',teacher:'',year:'115',term:'上',subjects:['國文','英語','數學','自然','社會'],students:[]}}
 function blankPaper(){return {id:uid(),title:'新試卷',subject:'',grade:'',exam:'第一次段考',total:100,units:['第一單元','第二單元'],date:'',teacher:'',reviewer:'',remark:'',items:[],miscons:[],resp:{},remed:{}}}
-function freshDB(){const c=demoClass(),p=demoPaper();demoResp(p,c);return {ver:2,settings:{school:'示範國民中學',passLine:60,seals:['班級導師','教務組長','特教／輔導業務','教導主任','校長核示'],paperSeals:['命題教師','審題教師','教務主任','校長'],autoSnap:true},classes:[c],cur:c.id,papers:[p],curPaper:p.id,history:[],savedAt:null}}
+function freshDB(){const c=demoClass(),p=demoPaper();demoResp(p,c);return {ver:2,settings:{school:'示範國民中學',passLine:60,seals:['班級導師','教務組長','教導主任','校長核示'],paperSeals:['命題教師','審題教師','教務主任','校長'],autoSnap:true},classes:[c],cur:c.id,papers:[p],curPaper:p.id,history:[],savedAt:null}}
 function migrate(o){
   if(o&&o.ver===2&&Array.isArray(o.classes))return o;
   if(o&&Array.isArray(o.students)){ // 第一版資料
@@ -1748,7 +1748,7 @@ function demoPost(p,c){
 function elemClass(c){const map={'國文':'國語','自然':'生活','社會':'本土語'};c.subjects=c.subjects.map(k=>map[k]||k);c.students.forEach(s=>['s1','s2'].forEach(ex=>{const o={};Object.entries(s[ex]).forEach(([k,v])=>o[map[k]||k]=v);s[ex]=o}));c.name='二年甲班（示範）';return c}
 function freshDB(){
   const c=elemClass(demoClass());
-  DB={ver:2,settings:{school:'示範國民小學',passLine:60,seals:['班級導師','教務組長','特教／輔導業務','教導主任','校長核示'],paperSeals:['命題教師','審題教師','教務主任','校長'],autoSnap:true},
+  DB={ver:2,settings:{school:'示範國民小學',passLine:60,seals:['班級導師','教務組長','教導主任','校長核示'],paperSeals:['命題教師','審題教師','教務主任','校長'],autoSnap:true},
     classes:[c],cur:c.id,papers:[],curPaper:null,history:[],savedAt:null,lib:{concepts:[],miscons:[]},progress:{}};
   const p=demoPaper();p.kind='段考';p.adate='2026-10-28';DB.papers.push(p);DB.curPaper=p.id;demoResp(p,c);
   DB.papers.push(demoPost(p,c));
@@ -3273,6 +3273,10 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act="mkpdf
 /* ---------- 評量類型：依試卷名稱判定期中／期末 ---------- */
 const _ensKind=ensure;
 ensure=function(){_ensKind();(DB.papers||[]).forEach(p=>{if(p.kind&&p.kind!=='單元評量')return;const t=(p.title||'')+(p.exam||'');if(/期中/.test(t))p.kind='期中評量';else if(/期末/.test(t))p.kind='期末評量'})};
+
+/* ---------- 核章欄：預設不含輔導業務（一次性調整） ---------- */
+const _ensSeal=ensure;
+ensure=function(){_ensSeal();const S=DB.settings;if(S&&!S.sealsV2){if(Array.isArray(S.seals))S.seals=S.seals.filter(x=>!/輔導/.test(x));if(Array.isArray(S.paperSeals))S.paperSeals=S.paperSeals.filter(x=>!/輔導/.test(x));S.sealsV2=true}};
 
 load();ensure();renderHeader();go('design');webNote();
 </script>
