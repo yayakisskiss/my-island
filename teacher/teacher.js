@@ -366,6 +366,11 @@ function demoData() {
 async function init() {
   await loadContent();
   $('#ep').value = store.get('ep', '');
+  // 教師專用連結：teacher.html#e=<紀錄表網址>，打開一次就記住，之後只要輸入密碼
+  try {
+    const e = new URLSearchParams(location.hash.replace(/^#/, '')).get('e');
+    if (e && EP_RE.test(e)) { $('#ep').value = e; store.set('ep', e); history.replaceState(null, '', location.pathname); }
+  } catch (er) {}
   try { const pw = sessionStorage.getItem('shi2.teacher.pw'); if (pw) { $('#pw').value = pw; $('#remember').checked = true; } } catch (e) {}
   $('#login-form').addEventListener('submit', login);
   $('#demo').addEventListener('click', () => { T.demo = true; T.tab = 'overview'; store.set('sizes', Object.assign(store.get('sizes', {}), { 501: store.get('sizes', {})[501] || 26 })); setData(demoData()); toast('這是示範資料（示意）'); });
