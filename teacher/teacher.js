@@ -94,6 +94,13 @@ function classData() {
     if (e.type === 'discovery') { st.disc++; if (e.ok) st.discTry1++; }
   }
   for (const w of ws) { const st = bySeat.get(w.seat); if (st) st.ws.push(w); }
+  // 試算表可能把「3/4」自動變成日期：改用作答紀錄重新算島章與探索數
+  for (const st of bySeat.values()) {
+    const pass = new Set(st.events.filter(e => e.type === 'challenge' && e.ok).map(e => e.island));
+    const disc = new Set(st.events.filter(e => e.type === 'discovery').map(e => e.item));
+    if (!/^\d+\/\d+$/.test(String(st.stamps))) st.stamps = `${pass.size}/${T.islands.length}`;
+    if (!/^\d+\/\d+$/.test(String(st.found))) st.found = `${disc.size}/${T.discs.length}`;
+  }
   const size = Number($('#cls-size').value) || 0;
   const now = Date.now();
   const rows = [];

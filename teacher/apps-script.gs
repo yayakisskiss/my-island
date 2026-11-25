@@ -125,8 +125,9 @@ function push_(b, classes) {
     cache.put(seenKey, JSON.stringify(seen.slice(-600)), 21600);
     // 更新學生總覽（同班同座號一列）
     const s = b.summary || {};
-    const row = [cls, seat, name, new Date(), Number(s.level) || 1, Number(s.exp) || 0, (Number(s.stamps) || 0) + '/' + (Number(s.islandsTotal) || 0),
-      (Number(s.found) || 0) + '/' + (Number(s.foundTotal) || 0), safe(s.best, 60), (Number(s.finalBest) || 0) + (s.finalPassed ? ' ✔通過' : ''),
+    // 分數形式前面加 ' ，避免試算表把「3/4」自動變成日期
+    const row = [cls, seat, name, new Date(), Number(s.level) || 1, Number(s.exp) || 0, "'" + (Number(s.stamps) || 0) + '/' + (Number(s.islandsTotal) || 0),
+      "'" + (Number(s.found) || 0) + '/' + (Number(s.foundTotal) || 0), safe(s.best, 60), (Number(s.finalBest) || 0) + (s.finalPassed ? ' ✔通過' : ''),
       Number(s.correctQ) || 0, Number(s.read) || 0, Number(s.worksheets) || 0, Number(s.minutes) || 0, safe(b.device, 20)];
     const sum = ss.getSheetByName(SHEET_SUMMARY);
     const n = sum.getLastRow() - 1;
