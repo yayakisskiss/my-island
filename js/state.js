@@ -107,9 +107,10 @@ export class GameState {
   recordAnswer(qid, correct) {
     if (!this.save || !correct) return 0;
     return this.mutate(s => {
-      const first = !s.correct[qid];
-      s.correct[qid] = (s.correct[qid] || 0) + 1;
-      return first ? this.rules.firstCorrect : this.rules.repeatCorrect;
+      // 第 5 版：只有第一次答對加分，重刷同一題不再加分（以前累積的不扣）
+      if (s.correct[qid]) return 0;
+      s.correct[qid] = 1;
+      return this.rules.firstCorrect;
     });
   }
   finishChallenge(islandId, score) {

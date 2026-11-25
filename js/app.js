@@ -578,15 +578,15 @@ function renderChallengeIntro(tp, isl, inCard) {
   const stamped = s.save && s.save.stamps.includes(isl.id);
   tp.innerHTML = `
     <div class="result-box">
-      <p><strong>隨堂三題</strong>：從本島題庫隨機抽 ${r.questionsPerChallenge} 題，答對 ${r.passCorrect} 題以上就過關${s.hasAdventurer ? '、得到島章' : ''}。可以重玩。</p>
+      <p><strong>隨堂三題</strong>：從本島 ${isl.quiz.length} 題題庫抽 ${r.questionsPerChallenge} 題，答對 ${r.passCorrect} 題以上就過關${s.hasAdventurer ? '、得到島章' : ''}。可以重玩。</p>
       <p class="note">最佳成績：${best == null ? '還沒挑戰' : best + ' / ' + r.questionsPerChallenge}　${stamped ? '・✓ 已得到島章' : ''}</p>
-      ${s.hasAdventurer ? `<p class="note">EXP：第一次答對 +${r.firstCorrect}、再答對 +${r.repeatCorrect}、第一次過關 +${r.firstClear}</p>` : '<p class="note">現在是「先逛逛」模式：可以作答，但不會記錄 EXP 與島章。</p>'}
+      ${s.hasAdventurer ? `<p class="note">EXP：每一題第一次答對 +${r.firstCorrect}、第一次過關 +${r.firstClear}。重玩會優先出你還沒答對的題目，答對過的題目不再加分。</p>` : '<p class="note">現在是「先逛逛」模式：可以作答，但不會記錄 EXP 與島章。</p>'}
       <span class="tag-self">自編練習題（依教材改寫）</span>
     </div>
     <div class="row"><button class="btn" type="button" id="ch-start">⚔️ 開始挑戰</button>
     ${!s.hasAdventurer ? '<button class="btn ghost" type="button" id="ch-create">建立冒險者</button>' : ''}</div>`;
   $('#ch-start', tp).addEventListener('click', () => {
-    const qs = shuffle(isl.quiz).slice(0, r.questionsPerChallenge);
+    const qs = pickQuestions(isl.quiz, r.questionsPerChallenge);
     runQuiz(tp, qs, score => {
       app.state.updateCourse(cc => { cc.quiz[isl.id] = Math.max(cc.quiz[isl.id] || 0, score); });
       const res = app.state.finishChallenge(isl.id, score);
@@ -600,6 +600,12 @@ function renderChallengeIntro(tp, isl, inCard) {
     }, () => renderChallengeIntro(tp, isl, inCard), Object.assign({ kind: 'challenge' }, inCard ? { onBack: closeCard } : {}));
   });
   const cc = $('#ch-create', tp); if (cc) cc.addEventListener('click', openCreate);
+}
+// 先出還沒答對過的題目，再補其他題；同一批裡順序隨機
+function pickQuestions(bank, n) {
+  const done = (app.state.save && app.state.save.correct) || {};
+  const fresh = shuffle(bank.filter(q => !done[q.id])), old = shuffle(bank.filter(q => done[q.id]));
+  return shuffle([...fresh, ...old].slice(0, n));
 }
 function runQuiz(tp, questions, onFinish, onAgain, opts = {}) {
   let i = 0, score = 0;
@@ -741,7 +747,7 @@ function renderFinal(tp, inCard) {
     <div class="row"><button class="btn" type="button" id="fn-start">⚔️ 開始最終挑戰</button>${passed ? '<button class="btn alt" type="button" id="fn-cert">📜 領取證書</button>' : ''}</div>`;
   $('#fn-start', tp).addEventListener('click', () => {
     const pool = app.content.islands.filter(i => s.save.stamps.includes(i.id)).flatMap(i => i.quiz);
-    const qs = shuffle(pool).slice(0, r.finalQuestions);
+    const qs = pickQuestions(pool, r.finalQuestions);
     runQuiz(tp, qs, score => {
       app.state.finishFinal(score);
       const ok = score >= r.finalPass;
@@ -1401,6 +1407,7 @@ function renderTask(box, d) {
     }));
     return;
   }
+  if (t.type === 'compare') { renderCompare(box, t, done); return; }
   box.innerHTML = `<p class="quiz-q" id="tq">${esc(t.q)}</p><div class="opts" role="group" aria-labelledby="tq">${shuffle(t.options).map((o, k) => `<button type="button" class="opt" data-opt="${o.id}"><span class="k">${'ABCD'[k]}</span><span>${esc(o.text)}</span></button>`).join('')}</div><div id="tfb" aria-live="polite"></div>`;
   $$('.opt', box).forEach(b => b.addEventListener('click', () => {
     if (b.dataset.opt === t.answer) { $$('.opt', box).forEach(x => { x.disabled = true; }); b.classList.add('correct'); done(); }
@@ -1411,11 +1418,29 @@ function renderTask(box, d) {
     }
   }));
 }
+// 表格比較題：每一格選一個答案，按「檢查」看哪幾格對了
+function renderCompare(box, t, done) {
+  box.innerHTML = `<p class="quiz-q" id="tq">${esc(t.q)}</p>
+    <div class="cmp-wrap"><table class="cmp" aria-labelledby="tq"><thead><tr><th scope="col"></th>${t.cols.map(c => `<th scope="col">${esc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${t.rows.map((r, i) => `<tr><th scope="row">${esc(r.label)}</th>${t.cols.map((c, j) => `<td><select data-r="${i}" data-c="${j}" aria-label="${esc(c)}的${esc(r.label)}"><option value="">請選擇</option>${shuffle(r.options).map(o => `<option>${esc(o)}</option>`).join('')}</select></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <div class="row"><button class="btn" type="button" id="cmp-check">✔️ 檢查</button></div><div id="tfb" aria-live="polite"></div>`;
+  const sels = $$('select', box);
+  sels.forEach(s => s.addEventListener('change', () => { s.classList.remove('bad', 'good'); app.sound.play('tick'); }));
+  $('#cmp-check', box).addEventListener('click', () => {
+    if (sels.some(s => !s.value)) { $('#tfb', box).innerHTML = '<p class="note">每一格都要選喔！</p>'; return; }
+    let wrong = 0;
+    sels.forEach(s => { const ok = s.value === t.rows[+s.dataset.r].answers[+s.dataset.c]; s.classList.toggle('good', ok); s.classList.toggle('bad', !ok); if (!ok) wrong++; });
+    if (!wrong) { sels.forEach(s => { s.disabled = true; }); $('#cmp-check', box).hidden = true; done(); return; }
+    box._wrong = (box._wrong || 0) + 1;
+    app.sound.play('wrong');
+    $('#tfb', box).innerHTML = `<p class="note">有 ${wrong} 格不對（紅色框），回到詩句裡找找線索再改改看！</p>`;
+  });
+}
 function discoverySolved(box, d) {
   const isl = d.island;
   const wasOpen = app.state.challengeOpen(isl);
   const first = app.state.recordDiscovery(d.id);
-  app.sync.log({ type: 'discovery', island: isl, item: d.id, text: d.title + (d.task.q ? '：' + d.task.q : '（詩句排序）'), tries: (box._wrong || 0) + 1, correct: !box._wrong });
+  app.sync.log({ type: 'discovery', island: isl, item: d.id, text: d.title + (d.task.type === 'order' ? '（詩句排序）' : '：' + d.task.q), tries: (box._wrong || 0) + 1, correct: !box._wrong });
   app.sound.play('correct'); setTimeout(() => app.sound.play('discover'), 260);
   if (app.world) app.world.burst(app.world.anchor(isl, d.anchor).focus.clone(), 0x9be06a, 40, { up: 3, dur: 1.8 });
   const nowOpen = isl !== 'center' && app.state.challengeOpen(isl);

@@ -216,7 +216,17 @@ function renderItems(v, cd) {
     const f = cd.ev.filter(e => e.type === 'discovery' && e.item === d.id);
     const per = new Map(); f.forEach(e => { if (!per.has(e.seat)) per.set(e.seat, e); });
     const arr = [...per.values()];
-    items.push({ kind: '探索', id: d.id, island: d.island, text: `${d.title}：${d.task.q || '詩句排序'}`, right: d.task.q ? (d.task.options.find(o => o.id === d.task.answer) || {}).text : d.task.lines.join(' / '), n: f.length, people: arr.length, rate: pct(arr.filter(e => e.ok).length, arr.length), avgTries: arr.length ? (arr.reduce((a, e) => a + (Number(e.tries) || 1), 0) / arr.length).toFixed(1) : null, missed: arr.filter(e => !e.ok).map(e => `${e.seat}號${e.name}`) });
+    items.push({ kind: '探索', id: d.id, island: d.island, text: `${d.title}：${d.task.type === 'order' ? '詩句排序' : d.task.q}`, right: d.task.type === 'compare' ? d.task.rows.map(r => `${r.label}：${r.answers.join('／')}`).join('；') : d.task.type === 'order' ? d.task.lines.join(' / ') : (d.task.options.find(o => o.id === d.task.answer) || {}).text, n: f.length, people: arr.length, rate: pct(arr.filter(e => e.ok).length, arr.length), avgTries: arr.length ? (arr.reduce((a, e) => a + (Number(e.tries) || 1), 0) / arr.length).toFixed(1) : null, missed: arr.filter(e => !e.ok).map(e => `${e.seat}號${e.name}`) });
+  }
+  // 題庫改版前的舊題：紀錄還在，也一起列出來
+  const known = new Set(T.questions.map(q => q.id));
+  const oldIds = [...new Set(cd.ev.filter(e => e.type === 'answer' && e.item && !known.has(e.item) && (!isl || e.island === isl)).map(e => e.item))];
+  for (const id of oldIds) {
+    const evs = cd.ev.filter(e => e.type === 'answer' && e.item === id);
+    const first = new Map(), wrong = new Map();
+    evs.forEach(e => { if (!first.has(e.seat)) first.set(e.seat, e); if (e.ok === false) wrong.set(e.answer, (wrong.get(e.answer) || 0) + 1); });
+    const f = [...first.values()];
+    items.push({ kind: '舊題（已改版）', id, island: evs[0].island, text: evs[0].text, right: evs[0].right, n: evs.length, people: f.length, rate: pct(f.filter(e => e.ok).length, f.length), topWrong: [...wrong.entries()].sort((x, y) => y[1] - x[1])[0], missed: f.filter(e => !e.ok).map(e => `${e.seat}號${e.name}`) });
   }
   items.sort((a, b) => (a.rate == null) - (b.rate == null) || (a.rate ?? 0) - (b.rate ?? 0));
   v.innerHTML = `

@@ -455,3 +455,13 @@ body.fp-mode.card-open #app::after, body.fp-mode.cinema #app::after { display: n
 .spot.edge { opacity: .9; }
 .spot.edge::before { content: ''; position: absolute; left: 50%; top: 50%; width: 0; height: 0; border-left: 9px solid #f3c64b; border-top: 7px solid transparent; border-bottom: 7px solid transparent;
   transform: rotate(var(--ang, 0rad)) translate(30px, -50%); transform-origin: 0 0; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+
+/* 第 5 版：兩首詩比一比（表格比較題） */
+.cmp-wrap { overflow-x: auto; margin: 6px 0 10px; }
+.cmp { border-collapse: separate; border-spacing: 6px; width: 100%; }
+.cmp th { text-align: left; font-size: 15px; white-space: nowrap; }
+.cmp thead th { text-align: center; }
+.cmp select { width: 100%; min-height: 44px; font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 10px; border: 2px solid var(--line); background: #fff; color: var(--ink); }
+.cmp select.good { border-color: #2e8b57; background: #e8f5ec; }
+.cmp select.bad { border-color: #b3261e; background: #fdecea; }
+@media (max-width: 760px) { .cmp th { font-size: 13px; white-space: normal; } .cmp select { font-size: 14px; } }
